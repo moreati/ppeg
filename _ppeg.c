@@ -558,6 +558,37 @@ int domatch(Instruction *p, char *s) {
     return e-s;
 }
 
+static void setinstaux (Instruction *i, Opcode op, int offset, int aux) {
+  i->i.code = op;
+  i->i.offset = offset;
+  i->i.aux = aux;
+}
+
+#define setinst(i,op,off)	setinstaux(i,op,off,0)
+
+#define setinstcap(i,op,idx,k,n)  setinstaux(i,op,idx,((k) | ((n) << 4)))
+
+Instruction *new_prog(int n)
+{
+    Instruction *result = PyMem_New(Instruction, n+1);
+    if (result)
+	setinst(result+n, IEnd, 0);
+    return result;
+}
+
+static Instruction *any (int n, int extra, int *offsetp) {
+  int offset = offsetp ? *offsetp : 0;
+  Instruction *p = new_prog((n - 1)/UCHAR_MAX + extra + 1);
+  Instruction *p1 = p + offset;
+  if (p) {
+      for (; n > UCHAR_MAX; n -= UCHAR_MAX)
+	setinstaux(p1++, IAny, 0, UCHAR_MAX);
+      setinstaux(p1++, IAny, 0, n);
+      if (offsetp) *offsetp = p1 - p;
+  }
+  return p;
+}
+
 /* **********************************************************************
  * End of Lua cpeg code
  * **********************************************************************/
@@ -581,21 +612,17 @@ Pattern_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     Pattern *self;
 
     self = (Pattern *)type->tp_alloc(type, 0);
-    if (self != NULL) {
-        self->prog = PyMem_New(Instruction, 50);
-        if (self->prog == NULL) {
-            Py_DECREF(self);
-            return NULL;
-        }
-	self->prog[0].i.code = IEnd;
-    }
-
+    self->prog = NULL;
     return (PyObject *)self;
 }
 
 static int
 Pattern_init(Pattern *self, PyObject *args, PyObject *kwds)
 {
+    self->prog = new_prog(0);
+    if (self->prog == NULL)
+	return -1;
+
     return 0;
 }
 
@@ -607,10 +634,121 @@ Pattern_dump(Pattern* self)
 }
 
 static PyObject *
-Pattern_setdummy(Pattern* self)
+Pattern_Any(PyObject *cls, PyObject *arg)
 {
-    memcpy(self->prog, Dummy, sizeof(Dummy));
-    Py_RETURN_NONE;
+    long n = PyInt_AsLong(arg);
+    Pattern *result;
+    Instruction *p;
+
+    if (n == -1 && PyErr_Occurred())
+	return NULL;
+
+    result = (Pattern *)PyObject_CallFunction(cls, "");
+    if (result == NULL)
+	return NULL;
+
+    if (n == 0) {
+	/* Match the null string */
+	/* Nothing more to do */
+	return (PyObject*)result;
+    }
+    else if (n > 0) {
+	p = any(n, 0, NULL);
+    }
+    else if (-n <= UCHAR_MAX) {
+	p = new_prog(2);
+	if (p) {
+	    setinstaux(p, IAny, 2, -n);
+	    setinst(p + 1, IFail, 0);
+	}
+    }
+    else {
+        int offset = 2;  /* space for IAny & IChoice */
+        p = any(-n - UCHAR_MAX, 3, &offset);
+	if (p) {
+	    setinstaux(p, IAny, offset + 1, UCHAR_MAX);
+	    setinstaux(p + 1, IChoice, offset, UCHAR_MAX);
+	    setinst(p + offset, IFailTwice, 0);
+	}
+    }
+
+    if (p == NULL) {
+	Py_DECREF(result);
+	return NULL;
+    }
+
+    PyMem_Free(result->prog);
+    result->prog = p;
+    return (PyObject*)result;
+}
+
+static PyObject *
+Pattern_Match(PyObject *cls, PyObject *arg)
+{
+    char *str;
+    Py_ssize_t len;
+    Py_ssize_t i;
+    Pattern *result;
+    Instruction *p;
+
+    if (PyString_AsStringAndSize(arg, &str, &len) == -1)
+	return NULL;
+
+    result = (Pattern *)PyObject_CallFunction(cls, "");
+    if (result == NULL)
+	return NULL;
+
+    p = new_prog(len);
+    if (p == NULL) {
+	Py_DECREF(result);
+	return NULL;
+    }
+
+    for (i = 0; i < len; ++i)
+	setinstaux(p+i, IChar, 0, (byte)str[i]);
+
+    PyMem_Free(result->prog);
+    result->prog = p;
+    return (PyObject*)result;
+}
+
+static PyObject *
+Pattern_Fail(PyObject *cls)
+{
+    Pattern *result;
+    Instruction *p;
+
+    result = (Pattern *)PyObject_CallFunction(cls, "");
+    if (result == NULL)
+	return NULL;
+
+    p = new_prog(1);
+    if (p == NULL) {
+	Py_DECREF(result);
+	return NULL;
+    }
+
+    setinst(p, IFail, 0);
+
+    PyMem_Free(result->prog);
+    result->prog = p;
+    return (PyObject*)result;
+}
+
+static PyObject *
+Pattern_Dummy(PyObject *cls)
+{
+    PyObject *result = PyObject_CallFunction(cls, "");
+    if (result) {
+	Pattern *pat = (Pattern *)result;
+	pat->prog = PyMem_Realloc(pat->prog, sizeof(Dummy));
+	if (pat->prog == NULL) {
+	    Py_DECREF(result);
+	    return NULL;
+	}
+	memcpy(pat->prog, Dummy, sizeof(Dummy));
+    }
+    return result;
 }
 
 static PyObject *
@@ -625,6 +763,10 @@ Pattern_match(Pattern* self, PyObject *arg)
 	return NULL;
 
     e = match("", str, str + len, self->prog, cc, 0);
+    if (e == 0) {
+	PyErr_SetString(PyExc_IndexError, "No match");
+	return NULL;
+    }
     return PyInt_FromLong(e - str);
 }
 
@@ -632,8 +774,17 @@ static PyMethodDef Pattern_methods[] = {
     {"dump", (PyCFunction)Pattern_dump, METH_NOARGS,
      "Dump the pattern, for debugging"
     },
-    {"setdummy", (PyCFunction)Pattern_setdummy, METH_NOARGS,
-     "Set the pattern to the 'dummy' value"
+    {"Any", (PyCFunction)Pattern_Any, METH_O | METH_CLASS,
+     "A pattern which matches any character(s)"
+    },
+    {"Match", (PyCFunction)Pattern_Match, METH_O | METH_CLASS,
+     "A pattern which matches a specific string"
+    },
+    {"Fail", (PyCFunction)Pattern_Fail, METH_NOARGS | METH_CLASS,
+     "A pattern which never matches"
+    },
+    {"Dummy", (PyCFunction)Pattern_Dummy, METH_NOARGS | METH_CLASS,
+     "A static value for testing"
     },
     {"match", (PyCFunction)Pattern_match, METH_O,
      "Match the pattern against the supplied string"
