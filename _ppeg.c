@@ -179,21 +179,19 @@ Pattern_Dummy(PyObject *cls)
 }
 
 static PyObject *
-Pattern_match(Pattern* self, PyObject *arg)
+Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
 {
     char *str;
     Py_ssize_t len;
     Capture cc[IMAXCAPTURES];
     const char *e;
 
-    if (PyString_AsStringAndSize(arg, &str, &len) != 0)
+    if (!PyArg_ParseTuple(args, "s#", &str, &len))
 	return NULL;
 
     e = match("", str, str + len, self->prog, cc, 0);
-    if (e == 0) {
-	PyErr_SetString(PyExc_IndexError, "No match");
-	return NULL;
-    }
+    if (e == 0)
+	Py_RETURN_NONE;
     return PyInt_FromLong(e - str);
 }
 
@@ -212,9 +210,6 @@ static PyMethodDef Pattern_methods[] = {
     },
     {"Dummy", (PyCFunction)Pattern_Dummy, METH_NOARGS | METH_CLASS,
      "A static value for testing"
-    },
-    {"match", (PyCFunction)Pattern_match, METH_O,
-     "Match the pattern against the supplied string"
     },
     {NULL}  /* Sentinel */
 };
@@ -235,7 +230,7 @@ static PyTypeObject PatternType = {
     0,                         /*tp_as_sequence*/
     0,                         /*tp_as_mapping*/
     0,                         /*tp_hash */
-    0,                         /*tp_call*/
+    (ternaryfunc)Pattern_call, /*tp_call*/
     0,                         /*tp_str*/
     0,                         /*tp_getattro*/
     0,                         /*tp_setattro*/

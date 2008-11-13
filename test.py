@@ -24,25 +24,25 @@ class TestBasic(unittest.TestCase):
         p = Pattern.Dummy()
         with stdout(StringIO()):
             self.assertEqual(p.dump(), None)
-        self.assertEqual(p.match("aOmega"), 6)
+        self.assertEqual(p("aOmega"), 6)
     def testany(self):
         p = Pattern.Any(0)
-        self.assertEqual(p.match("fred"), 0)
+        self.assertEqual(p("fred"), 0)
         p = Pattern.Any(1)
-        self.assertEqual(p.match("fred"), 1)
+        self.assertEqual(p("fred"), 1)
         p = Pattern.Any(-1)
-        self.assertRaises(IndexError, p.match, "fred")
+        self.assertEqual(p("fred"), None)
         p = Pattern.Any(-1)
-        self.assertEqual(p.match(""), 0)
+        self.assertEqual(p(""), 0)
     def testmatch(self):
         p = Pattern.Match("fred")
-        self.assertEqual(p.match("fred"), 4)
-        self.assertEqual(p.match("freddy"), 4)
-        self.assertRaises(IndexError, p.match, "jim")
+        self.assertEqual(p("fred"), 4)
+        self.assertEqual(p("freddy"), 4)
+        self.assertEqual(p("jim"), None)
     def testfail(self):
         p = Pattern.Fail()
-        self.assertRaises(IndexError, p.match, "jim")
-        self.assertRaises(IndexError, p.match, "")
+        self.assertEqual(p("jim"), None)
+        self.assertEqual(p(""), None)
 
 if __name__ == '__main__':
     unittest.main()
