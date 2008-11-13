@@ -607,7 +607,7 @@ static const char *match ( /* lua_State *L, */
 */
 
 
-static int verify (lua_State *L, Instruction *op, const Instruction *p,
+static int verify ( /* lua_State *L, */ Instruction *op, const Instruction *p,
                    Instruction *e, int postable, int rule) {
   static const char dummy[] = "";
   Stack back[MAXBACK];
@@ -620,7 +620,14 @@ static int verify (lua_State *L, Instruction *op, const Instruction *p,
       }
       case IChoice: {
         if (backtop >= MAXBACK)
+#if 0
           return luaL_error(L, "too many pending calls/choices");
+#else
+	{
+	  PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
+	  return -1;
+	}
+#endif
         back[backtop].p = dest(0, p);
         back[backtop++].s = dummy;
         p++;
@@ -629,7 +636,14 @@ static int verify (lua_State *L, Instruction *op, const Instruction *p,
       case ICall: {
         assert((p + 1)->i.code != IRet);  /* no tail call */
         if (backtop >= MAXBACK)
+#if 0
           return luaL_error(L, "too many pending calls/choices");
+#else
+	{
+	  PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
+	  return -1;
+	}
+#endif
         back[backtop].s = NULL;
         back[backtop++].p = p + 1;
         goto dojmp;
@@ -640,13 +654,29 @@ static int verify (lua_State *L, Instruction *op, const Instruction *p,
           goto fail;  /* to be verified later */
         for (i = 0; i < backtop; i++) {
           if (back[i].s == NULL && back[i].p == p + 1)
+#if 0
             return luaL_error(L, "%s is left recursive", val2str(L, rule));
+#else
+	    {
+	      PyErr_SetString(PyExc_RuntimeError, "Rule is left recursive");
+	      return -1;
+	    }
+#endif
         }
         if (backtop >= MAXBACK)
+#if 0
           return luaL_error(L, "too many pending calls/choices");
+#else
+	{
+	  PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
+	  return -1;
+	}
+#endif
         back[backtop].s = NULL;
         back[backtop++].p = p + 1;
+#if 0
         p = op + getposition(L, postable, p->i.offset);
+#endif
         continue;
       }
       case IBackCommit:
@@ -718,7 +748,7 @@ static int verify (lua_State *L, Instruction *op, const Instruction *p,
 }
 
 
-static void checkrule (lua_State *L, Instruction *op, int from, int to,
+static void checkrule (/* lua_State *L, */ Instruction *op, int from, int to,
                        int postable, int rule) {
   int i;
   int lastopen = 0;  /* more recent OpenCall seen in the code */
@@ -727,15 +757,22 @@ static void checkrule (lua_State *L, Instruction *op, int from, int to,
       int start = dest(op, i);
       assert(op[start - 1].i.code == IChoice && dest(op, start - 1) == i + 1);
       if (start <= lastopen) {  /* loop does contain an open call? */
-        if (!verify(L, op, op + start, op + i, postable, rule)) /* check body */
+        if (!verify(/* L, */ op, op + start, op + i, postable, rule)) /* check body */
+#if 0
           luaL_error(L, "possible infinite loop in %s", val2str(L, rule));
+#else
+	{
+	  PyErr_SetString(PyExc_RuntimeError, "Possible infinite loop");
+	  return;
+	}
+#endif
       }
     }
     else if (op[i].i.code == IOpenCall)
       lastopen = i;
   }
   assert(op[i - 1].i.code == IRet);
-  verify(L, op, op + from, op + to - 1, postable, rule);
+  verify(/* L, */ op, op + from, op + to - 1, postable, rule);
 }
 
 
@@ -760,7 +797,9 @@ typedef struct CharsetTag {
 } CharsetTag;
 
 
+#if 0
 static Instruction *getpatt (lua_State *L, int idx, int *size);
+#endif
 
 
 static void check2test (Instruction *p, int n) {
@@ -984,8 +1023,16 @@ static Instruction *newpatt (size_t n) {
   return p;
 }
 
+/* Forward declaration hack */
+typedef struct {
+    PyObject_HEAD
+    /* Type-specific fields go here. */
+    Instruction *prog;
+} PatternX;
+
+
 static PyObject *setpatt (PyObject *obj, Instruction *prog) {
-    Pattern *patt = (Pattern*)obj;
+    PatternX *patt = (PatternX*)obj;
 
     /* If creating the object or the prog gave an error,
      * discard obj and return an error
