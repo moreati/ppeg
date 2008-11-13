@@ -12,8 +12,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#if 0
 #include "lua.h"
 #include "lauxlib.h"
+#endif
 
 
 #define VERSION		"0.9"
@@ -180,6 +182,7 @@ static int sizei (const Instruction *i) {
 }
 
 
+#if 0
 static const char *val2str (lua_State *L, int idx) {
   const char *k = lua_tostring(L, idx);
   if (k != NULL)
@@ -202,6 +205,7 @@ static int getposition (lua_State *L, int t, int i) {
   lua_pop(L, 2);  /* remove environment and position */
   return res;
 }
+#endif
 
 
 
@@ -341,6 +345,7 @@ typedef struct Stack {
 } Stack;
 
 
+#if 0
 static int runtimecap (lua_State *L, Capture *close, Capture *ocap,
                        const char *o, const char *s, int ptop);
 
@@ -354,6 +359,7 @@ static Capture *doublecap (lua_State *L, Capture *cap, int captop, int ptop) {
   lua_replace(L, caplistidx(ptop));
   return newc;
 }
+#endif
 
 
 static void adddyncaptures (const char *s, Capture *base, int n, int fd) {
@@ -495,6 +501,7 @@ static const char *match (lua_State *L,
         p = stack->p;
         continue;
       }
+#if 0
       case ICloseRunTime: {
         int fr = lua_gettop(L) + 1;  /* stack index of first result */
         int ncap = runtimecap(L, capture + captop, capture, o, s, ptop);
@@ -523,6 +530,7 @@ static const char *match (lua_State *L,
         p++;
         continue;
       }
+#endif
       case ICloseCapture: {
         const char *s1 = s - getoff(p);
         assert(captop > 0);
@@ -550,16 +558,22 @@ static const char *match (lua_State *L,
         capture[captop].idx = p->i.offset;
         capture[captop].kind = getkind(p);
         if (++captop >= capsize) {
+#if 0
           capture = doublecap(L, capture, captop, ptop);
+#else
+	  assert(0);
+#endif
           capsize = 2 * captop;
         }
         p++;
         continue;
       }
+#if 0
       case IOpenCall: {
         lua_rawgeti(L, penvidx(ptop), p->i.offset);
         luaL_error(L, "reference to %s outside a grammar", val2str(L, -1));
       }
+#endif
       default: assert(0); return NULL;
     }
   }
@@ -847,6 +861,7 @@ static int isheadfail (Instruction *p) {
 }
 
 
+#if 0
 #define checkpattern(L, idx) ((Instruction *)luaL_checkudata(L, idx, PATTERN_T))
 
 
@@ -879,10 +894,12 @@ static int jointable (lua_State *L, int p1) {
   lua_pop(L, 2);  /* remove p1 env and old p env */
   return n;
 }
+#endif
 
 
 #define copypatt(p1,p2,sz)	memcpy(p1, p2, (sz) * sizeof(Instruction));
 
+#if 0
 #define pattsize(L,idx)		(lua_objlen(L, idx)/sizeof(Instruction) - 1)
 
 
@@ -900,6 +917,7 @@ static int addpatt (lua_State *L, Instruction *p, int p1idx) {
   }
   return sz;
 }
+#endif
 
 
 static void setinstaux (Instruction *i, Opcode op, int offset, int aux) {
@@ -913,6 +931,7 @@ static void setinstaux (Instruction *i, Opcode op, int offset, int aux) {
 #define setinstcap(i,op,idx,k,n)  setinstaux(i,op,idx,((k) | ((n) << 4)))
 
 
+#if 0
 static int value2fenv (lua_State *L, int vidx) {
   lua_createtable(L, 1, 0);
   lua_pushvalue(L, vidx);
@@ -920,8 +939,10 @@ static int value2fenv (lua_State *L, int vidx) {
   lua_setfenv(L, -2);
   return 1;
 }
+#endif
 
 
+#if 0
 static Instruction *newpatt (lua_State *L, size_t n) {
   Instruction *p;
   if (n >= MAXPATTSIZE - 1)
@@ -932,6 +953,35 @@ static Instruction *newpatt (lua_State *L, size_t n) {
   setinst(p + n, IEnd, 0);
   return p;
 }
+#else
+static Instruction *newpatt (size_t n) {
+  Instruction *p;
+  if (n >= MAXPATTSIZE - 1) {
+    PyErr_SetString(PyExc_ValueError, "Pattern too big");
+    return NULL;
+  }
+  p = PyMem_New(Instruction, n + 1);
+  if (p)
+    setinst(p + n, IEnd, 0);
+  return p;
+}
+
+static PyObject *setpatt (PyObject *obj, Instruction *prog) {
+    Pattern *patt = (Pattern*)obj;
+
+    /* If creating the object or the prog gave an error,
+     * discard obj and return an error
+     */
+    if (obj == NULL || prog == NULL) {
+	Py_XDECREF(obj);
+	return NULL;
+    }
+
+    PyMem_Free(patt->prog);
+    patt->prog = prog;
+    return obj;
+}
+#endif
 
 
 static void fillcharset (Instruction *p, Charset cs) {
@@ -986,6 +1036,7 @@ static int exclusive (CharsetTag *c1, CharsetTag *c2) {
 }
 
 
+#if 0
 static Instruction *newcharset (lua_State *L) {
   Instruction *p = newpatt(L, CHARSETINSTSIZE);
   p[0].i.code = ISet;
@@ -1206,12 +1257,14 @@ static int pattern_l (lua_State *L) {
   getpatt(L, 1, NULL);
   return 1;
 }
+#endif
 
 
 #define isany(p)	((p)->i.code == IAny && ((p) + 1)->i.code == IEnd)
 #define isfail(p)	((p)->i.code == IFail)
 #define issucc(p)	((p)->i.code == IEnd)
 
+#if 0
 static int concat_l (lua_State *L) {
   /* p1; p2; */
   int l1, l2;
@@ -1303,6 +1356,7 @@ static int pattand_l (lua_State *L) {
   }
   return 1;
 }
+#endif
 
 
 static int firstpart (Instruction *p, int l) {
@@ -1321,6 +1375,7 @@ static int firstpart (Instruction *p, int l) {
 }
 
 
+#if 0
 static Instruction *auxnew (lua_State *L, Instruction **op, int *size,
                                          int extra) {
   *op = newpatt(L, *size + extra);
@@ -1328,6 +1383,7 @@ static Instruction *auxnew (lua_State *L, Instruction **op, int *size,
   *size += extra;
   return *op + *size - extra;
 }
+#endif
 
 
 static int nofail (Instruction *p, int l) {
@@ -1352,6 +1408,7 @@ static int interfere (Instruction *p1, int l1, CharsetTag *st2) {
 }
 
 
+#if 0
 static Instruction *basicUnion (lua_State *L, Instruction *p1, int l1,
                                 int l2, int *size, CharsetTag *st2) {
   Instruction *op;
@@ -1647,6 +1704,7 @@ static int capconst_l (lua_State *L) {
   lua_setfenv(L, -2);   /* set environment */
   return 1;
 }
+#endif
 
 
 /* }====================================================== */
@@ -1659,6 +1717,7 @@ static int capconst_l (lua_State *L) {
 ** =======================================================
 */
 
+#if 0
 static void newpattfunc (lua_State *L, PattFunc f, const void *ud, size_t l) {
   int n = instsize(l) + 1;
   Instruction *p = newpatt(L, n);
@@ -1667,6 +1726,7 @@ static void newpattfunc (lua_State *L, PattFunc f, const void *ud, size_t l) {
   p[1].f = f;
   memcpy(p[2].buff, ud, l);
 }
+#endif
 
 
 #include <ctype.h>
@@ -1680,11 +1740,13 @@ static const char *span (const void *ud, const char *o,
 }
 
 
+#if 0
 static int span_l (lua_State *L) {
   const char *s = luaL_checkstring(L, 1);
   newpattfunc(L, span, s, strlen(s) + 1);
   return 1;
 }
+#endif
 
 /* }====================================================== */
 
@@ -1700,7 +1762,9 @@ static int span_l (lua_State *L) {
 typedef struct CapState {
   Capture *cap;  /* current capture */
   Capture *ocap;  /* (original) capture list */
+#if 0
   lua_State *L;
+#endif
   int ptop;  /* index of last argument to 'match' */
   const char *s;  /* original string */
   int valuecached;  /* value stored in cache slot */
@@ -1715,6 +1779,7 @@ typedef struct CapState {
 
 #define isfullcap(cap)	((cap)->siz != 0)
 
+#if 0
 #define getfromenv(cs,v)	lua_rawgeti((cs)->L, penvidx((cs)->ptop), v)
 #define pushluaval(cs)		getfromenv(cs, (cs)->cap->idx)
 
@@ -1729,6 +1794,7 @@ static void updatecache_ (CapState *cs, int v) {
   lua_replace(cs->L, subscache(cs));
   cs->valuecached = v;
 }
+#endif
 
 
 static int pushcapture (CapState *cs);
@@ -1760,6 +1826,7 @@ static Capture *nextcap (Capture *cap) {
 }
 
 
+#if 0
 static int pushallvalues (CapState *cs, int addextra) {
   Capture *co = cs->cap;
   int n = 0;
@@ -1910,6 +1977,7 @@ static int runtimecap (lua_State *L, Capture *close, Capture *ocap,
   lua_call(L, n + 2, LUA_MULTRET);
   return close - open;
 }
+#endif
 
 
 
@@ -1950,6 +2018,7 @@ static int getstrcaps (CapState *cs, StrAux *cps, int n) {
 }
 
 
+#if 0
 /*
 ** add next capture (which should be a string) to buffer
 */
@@ -2112,10 +2181,12 @@ static int getcaptures (lua_State *L, const char *s, const char *r, int ptop) {
   }
   return n;
 }
+#endif
 
 /* }====================================================== */
 
 
+#if 0
 static int version_l (lua_State *L) {
   lua_pushstring(L, VERSION);
   return 1;
@@ -2255,4 +2326,5 @@ int luaopen_lpeg (lua_State *L) {
   lua_settable(L, -4);
   return 1;
 }
+#endif
 
