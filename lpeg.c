@@ -381,7 +381,7 @@ static void adddyncaptures (const char *s, Capture *base, int n, int fd) {
 #define condfailed(p)	{ int f = p->i.offset; if (f) p+=f; else goto fail; }
 
 
-static const char *match (lua_State *L,
+static const char *match ( /* lua_State *L, */
                           const char *o, const char *s, const char *e,
                           Instruction *op, Capture *capture, int ptop) {
   Stack stackbase[MAXBACK];
@@ -405,6 +405,10 @@ static const char *match (lua_State *L,
       }
       case IGiveup: {
         assert(stack == stackbase);
+#if 1
+	/* Make sure we don't have a pending error */
+	PyErr_Clear();
+#endif
         return NULL;
       }
       case IRet: {
@@ -451,7 +455,14 @@ static const char *match (lua_State *L,
       }
       case IChoice: {
         if (stack >= stacklimit)
+#if 0
           return (luaL_error(L, "too many pending calls/choices"), (char *)0);
+#else
+	{
+	  PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
+	  return NULL;
+	}
+#endif
         stack->p = dest(0, p);
         stack->s = s - p->i.aux;
         stack->caplevel = captop;
@@ -461,7 +472,14 @@ static const char *match (lua_State *L,
       }
       case ICall: {
         if (stack >= stacklimit)
+#if 0
           return (luaL_error(L, "too many pending calls/choices"), (char *)0);
+#else
+	{
+	  PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
+	  return NULL;
+	}
+#endif
         stack->s = NULL;
         stack->p = p + 1;  /* save return address */
         stack++;
