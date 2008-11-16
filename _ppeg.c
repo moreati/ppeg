@@ -1,3 +1,4 @@
+/* vim: set et: */
 #include <Python.h>
 #include "lpeg.c"
 
@@ -54,7 +55,7 @@ Pattern_init(Pattern *self, PyObject *args, PyObject *kwds)
 {
     self->prog = PyMem_New(Instruction, 1);
     if (self->prog == NULL)
-	return -1;
+        return -1;
     setinst(self->prog, IEnd, 0);
 
     return 0;
@@ -65,22 +66,22 @@ new_pattern(PyObject *cls, Py_ssize_t n, Instruction **prog)
 {
     Pattern *result = (Pattern *)PyObject_CallFunction(cls, "");
     if (result == NULL)
-	return NULL;
+        return NULL;
 
     if (n >= MAXPATTSIZE - 1) {
-	PyErr_SetString(PyExc_ValueError, "Pattern too big");
-	return NULL;
+        PyErr_SetString(PyExc_ValueError, "Pattern too big");
+        return NULL;
     }
     result->prog = PyMem_Resize(result->prog, Instruction, n + 1);
     if (result->prog == NULL) {
-	Py_DECREF(result);
-	return NULL;
+        Py_DECREF(result);
+        return NULL;
     }
 
     setinst(result->prog + n, IEnd, 0);
 
     if (prog)
-	*prog = result->prog;
+        *prog = result->prog;
     return (PyObject *)result;
 }
 
@@ -93,19 +94,19 @@ Pattern_dump(Pattern* self)
 
 static PyObject *any (PyObject *cls, int n, int extra, int *offsetp, Instruction **prog)
 {
-  int offset = offsetp ? *offsetp : 0;
-  Instruction *p;
-  PyObject *result = new_pattern(cls, (n - 1)/UCHAR_MAX + extra + 1, &p);
-  Instruction *p1 = p + offset;
-  if (result) {
-      for (; n > UCHAR_MAX; n -= UCHAR_MAX)
-	setinstaux(p1++, IAny, 0, UCHAR_MAX);
-      setinstaux(p1++, IAny, 0, n);
-      if (offsetp) *offsetp = p1 - p;
-  }
-  if (prog)
-      *prog = p;
-  return result;
+    int offset = offsetp ? *offsetp : 0;
+    Instruction *p;
+    PyObject *result = new_pattern(cls, (n - 1)/UCHAR_MAX + extra + 1, &p);
+    Instruction *p1 = p + offset;
+    if (result) {
+        for (; n > UCHAR_MAX; n -= UCHAR_MAX)
+        setinstaux(p1++, IAny, 0, UCHAR_MAX);
+        setinstaux(p1++, IAny, 0, n);
+        if (offsetp) *offsetp = p1 - p;
+    }
+    if (prog)
+        *prog = p;
+    return result;
 }
 
 static PyObject *
@@ -115,33 +116,33 @@ Pattern_Any(PyObject *cls, PyObject *arg)
     PyObject *result;
 
     if (n == -1 && PyErr_Occurred())
-	return NULL;
+        return NULL;
 
     if (n == 0) {
-	/* Match the null string */
-	/* Nothing more to do */
-	result = new_pattern(cls, 0, NULL);
+        /* Match the null string */
+        /* Nothing more to do */
+        result = new_pattern(cls, 0, NULL);
     }
     else if (n > 0) {
-	result = any(cls, n, 0, NULL, NULL);
+        result = any(cls, n, 0, NULL, NULL);
     }
     else if (-n <= UCHAR_MAX) {
-	Instruction *p;
-	result = new_pattern(cls, 2, &p);
-	if (result) {
-	    setinstaux(p, IAny, 2, -n);
-	    setinst(p + 1, IFail, 0);
-	}
+        Instruction *p;
+        result = new_pattern(cls, 2, &p);
+        if (result) {
+            setinstaux(p, IAny, 2, -n);
+            setinst(p + 1, IFail, 0);
+        }
     }
     else {
         int offset = 2;  /* space for IAny & IChoice */
-	Instruction *p;
+        Instruction *p;
         result = any(cls, -n - UCHAR_MAX, 3, &offset, &p);
-	if (result) {
-	    setinstaux(p, IAny, offset + 1, UCHAR_MAX);
-	    setinstaux(p + 1, IChoice, offset, UCHAR_MAX);
-	    setinst(p + offset, IFailTwice, 0);
-	}
+        if (result) {
+            setinstaux(p, IAny, offset + 1, UCHAR_MAX);
+            setinstaux(p + 1, IChoice, offset, UCHAR_MAX);
+            setinst(p + offset, IFailTwice, 0);
+        }
     }
     return result;
 }
@@ -156,13 +157,13 @@ Pattern_Match(PyObject *cls, PyObject *arg)
     Instruction *p;
 
     if (PyString_AsStringAndSize(arg, &str, &len) == -1)
-	return NULL;
+        return NULL;
 
     result = new_pattern(cls, len, &p);
     if (result == NULL)
-	return NULL;
+        return NULL;
     for (i = 0; i < len; ++i)
-	setinstaux(p+i, IChar, 0, (byte)str[i]);
+        setinstaux(p+i, IChar, 0, (byte)str[i]);
 
     return result;
 }
@@ -175,7 +176,7 @@ Pattern_Fail(PyObject *cls)
 
     result = new_pattern(cls, 1, &p);
     if (result == NULL)
-	return NULL;
+        return NULL;
 
     setinst(p, IFail, 0);
     return result;
@@ -187,7 +188,7 @@ Pattern_Dummy(PyObject *cls)
     Instruction *p;
     PyObject *result = new_pattern(cls, sizeof(Dummy)/sizeof(*Dummy), &p);
     if (result)
-	memcpy(p, Dummy, sizeof(Dummy));
+        memcpy(p, Dummy, sizeof(Dummy));
     return result;
 }
 
@@ -200,11 +201,11 @@ Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
     const char *e;
 
     if (!PyArg_ParseTuple(args, "s#", &str, &len))
-	return NULL;
+        return NULL;
 
     e = match("", str, str + len, self->prog, cc, 0);
     if (e == 0)
-	Py_RETURN_NONE;
+        Py_RETURN_NONE;
     return PyInt_FromLong(e - str);
 }
 
@@ -250,12 +251,12 @@ static PyTypeObject PatternType = {
     0,                         /*tp_as_buffer*/
     Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,        /*tp_flags*/
     "Pattern object",           /* tp_doc */
-    0,		               /* tp_traverse */
-    0,		               /* tp_clear */
-    0,		               /* tp_richcompare */
-    0,		               /* tp_weaklistoffset */
-    0,		               /* tp_iter */
-    0,		               /* tp_iternext */
+    0,                         /* tp_traverse */
+    0,                         /* tp_clear */
+    0,                         /* tp_richcompare */
+    0,                         /* tp_weaklistoffset */
+    0,                         /* tp_iter */
+    0,                         /* tp_iternext */
     Pattern_methods,           /* tp_methods */
     0,                         /* tp_members */
     0,                         /* tp_getset */
@@ -273,7 +274,7 @@ static PyMethodDef _ppeg_methods[] = {
     {NULL}  /* Sentinel */
 };
 
-#ifndef PyMODINIT_FUNC	/* declarations for DLL import/export */
+#ifndef PyMODINIT_FUNC  /* declarations for DLL import/export */
 #define PyMODINIT_FUNC void
 #endif
 PyMODINIT_FUNC
@@ -286,7 +287,7 @@ init_ppeg(void)
 
     m = Py_InitModule3("_ppeg", _ppeg_methods, "PEG parser module.");
     if (m == NULL)
-	return;
+        return;
 
     Py_INCREF(&PatternType);
     PyModule_AddObject(m, "Pattern", (PyObject *)&PatternType);
