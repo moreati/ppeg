@@ -17,7 +17,6 @@ static const Instruction Dummy[] =
     {{IAny,1,0}},
     {{IJmp,0,-8}},
     {{IRet,0,0}},
-    {{IEnd,0,0}},
 };
 
 int domatch(Instruction *p, char *s) {
@@ -26,23 +25,11 @@ int domatch(Instruction *p, char *s) {
     return e-s;
 }
 
-static Instruction *any (int n, int extra, int *offsetp) {
-  int offset = offsetp ? *offsetp : 0;
-  Instruction *p = newpatt((n - 1)/UCHAR_MAX + extra + 1);
-  Instruction *p1 = p + offset;
-  if (p) {
-      for (; n > UCHAR_MAX; n -= UCHAR_MAX)
-	setinstaux(p1++, IAny, 0, UCHAR_MAX);
-      setinstaux(p1++, IAny, 0, n);
-      if (offsetp) *offsetp = p1 - p;
-  }
-  return p;
-}
-
 typedef struct {
     PyObject_HEAD
     /* Type-specific fields go here. */
     Instruction *prog;
+    Py_ssize_t prog_len;
 } Pattern;
 
 static void
@@ -65,11 +52,36 @@ Pattern_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 static int
 Pattern_init(Pattern *self, PyObject *args, PyObject *kwds)
 {
-    self->prog = newpatt(0);
+    self->prog = PyMem_New(Instruction, 1);
     if (self->prog == NULL)
 	return -1;
+    setinst(self->prog, IEnd, 0);
 
     return 0;
+}
+
+static PyObject *
+new_pattern(PyObject *cls, Py_ssize_t n, Instruction **prog)
+{
+    Pattern *result = (Pattern *)PyObject_CallFunction(cls, "");
+    if (result == NULL)
+	return NULL;
+
+    if (n >= MAXPATTSIZE - 1) {
+	PyErr_SetString(PyExc_ValueError, "Pattern too big");
+	return NULL;
+    }
+    result->prog = PyMem_Resize(result->prog, Instruction, n + 1);
+    if (result->prog == NULL) {
+	Py_DECREF(result);
+	return NULL;
+    }
+
+    setinst(result->prog + n, IEnd, 0);
+
+    if (prog)
+	*prog = result->prog;
+    return (PyObject *)result;
 }
 
 static PyObject *
@@ -79,46 +91,59 @@ Pattern_dump(Pattern* self)
     Py_RETURN_NONE;
 }
 
+static PyObject *any (PyObject *cls, int n, int extra, int *offsetp, Instruction **prog)
+{
+  int offset = offsetp ? *offsetp : 0;
+  Instruction *p;
+  PyObject *result = new_pattern(cls, (n - 1)/UCHAR_MAX + extra + 1, &p);
+  Instruction *p1 = p + offset;
+  if (result) {
+      for (; n > UCHAR_MAX; n -= UCHAR_MAX)
+	setinstaux(p1++, IAny, 0, UCHAR_MAX);
+      setinstaux(p1++, IAny, 0, n);
+      if (offsetp) *offsetp = p1 - p;
+  }
+  if (prog)
+      *prog = p;
+  return result;
+}
+
 static PyObject *
 Pattern_Any(PyObject *cls, PyObject *arg)
 {
     long n = PyInt_AsLong(arg);
     PyObject *result;
-    Instruction *p;
 
     if (n == -1 && PyErr_Occurred())
-	return NULL;
-
-    result = PyObject_CallFunction(cls, "");
-    if (result == NULL)
 	return NULL;
 
     if (n == 0) {
 	/* Match the null string */
 	/* Nothing more to do */
-	return result;
+	result = new_pattern(cls, 0, NULL);
     }
     else if (n > 0) {
-	p = any(n, 0, NULL);
+	result = any(cls, n, 0, NULL, NULL);
     }
     else if (-n <= UCHAR_MAX) {
-	p = newpatt(2);
-	if (p) {
+	Instruction *p;
+	result = new_pattern(cls, 2, &p);
+	if (result) {
 	    setinstaux(p, IAny, 2, -n);
 	    setinst(p + 1, IFail, 0);
 	}
     }
     else {
         int offset = 2;  /* space for IAny & IChoice */
-        p = any(-n - UCHAR_MAX, 3, &offset);
-	if (p) {
+	Instruction *p;
+        result = any(cls, -n - UCHAR_MAX, 3, &offset, &p);
+	if (result) {
 	    setinstaux(p, IAny, offset + 1, UCHAR_MAX);
 	    setinstaux(p + 1, IChoice, offset, UCHAR_MAX);
 	    setinst(p + offset, IFailTwice, 0);
 	}
     }
-
-    return setpatt(result, p);
+    return result;
 }
 
 static PyObject *
@@ -133,17 +158,13 @@ Pattern_Match(PyObject *cls, PyObject *arg)
     if (PyString_AsStringAndSize(arg, &str, &len) == -1)
 	return NULL;
 
-    result = PyObject_CallFunction(cls, "");
+    result = new_pattern(cls, len, &p);
     if (result == NULL)
 	return NULL;
+    for (i = 0; i < len; ++i)
+	setinstaux(p+i, IChar, 0, (byte)str[i]);
 
-    p = newpatt(len);
-    if (p) {
-      for (i = 0; i < len; ++i)
-        setinstaux(p+i, IChar, 0, (byte)str[i]);
-    }
-
-    return setpatt(result, p);
+    return result;
 }
 
 static PyObject *
@@ -152,29 +173,21 @@ Pattern_Fail(PyObject *cls)
     PyObject *result;
     Instruction *p;
 
-    result = PyObject_CallFunction(cls, "");
+    result = new_pattern(cls, 1, &p);
     if (result == NULL)
 	return NULL;
 
-    p = newpatt(1);
-    if (p)
-      setinst(p, IFail, 0);
-    return setpatt(result, p);
+    setinst(p, IFail, 0);
+    return result;
 }
 
 static PyObject *
 Pattern_Dummy(PyObject *cls)
 {
-    PyObject *result = PyObject_CallFunction(cls, "");
-    if (result) {
-	Pattern *pat = (Pattern *)result;
-	pat->prog = PyMem_Realloc(pat->prog, sizeof(Dummy));
-	if (pat->prog == NULL) {
-	    Py_DECREF(result);
-	    return NULL;
-	}
-	memcpy(pat->prog, Dummy, sizeof(Dummy));
-    }
+    Instruction *p;
+    PyObject *result = new_pattern(cls, sizeof(Dummy)/sizeof(*Dummy), &p);
+    if (result)
+	memcpy(p, Dummy, sizeof(Dummy));
     return result;
 }
 

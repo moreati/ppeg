@@ -1010,42 +1010,6 @@ static Instruction *newpatt (lua_State *L, size_t n) {
   setinst(p + n, IEnd, 0);
   return p;
 }
-#else
-static Instruction *newpatt (size_t n) {
-  Instruction *p;
-  if (n >= MAXPATTSIZE - 1) {
-    PyErr_SetString(PyExc_ValueError, "Pattern too big");
-    return NULL;
-  }
-  p = PyMem_New(Instruction, n + 1);
-  if (p)
-    setinst(p + n, IEnd, 0);
-  return p;
-}
-
-/* Forward declaration hack */
-typedef struct {
-    PyObject_HEAD
-    /* Type-specific fields go here. */
-    Instruction *prog;
-} PatternX;
-
-
-static PyObject *setpatt (PyObject *obj, Instruction *prog) {
-    PatternX *patt = (PatternX*)obj;
-
-    /* If creating the object or the prog gave an error,
-     * discard obj and return an error
-     */
-    if (obj == NULL || prog == NULL) {
-	Py_XDECREF(obj);
-	return NULL;
-    }
-
-    PyMem_Free(patt->prog);
-    patt->prog = prog;
-    return obj;
-}
 #endif
 
 
