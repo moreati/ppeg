@@ -376,7 +376,7 @@ static PyMethodDef Pattern_methods[] = {
 };
 
 static PyNumberMethods Pattern_as_number = {
-    0, /* binaryfunc nb_add */
+    (binaryfunc)Pattern_concat, /* binaryfunc nb_add */
     0, /* binaryfunc nb_subtract */
     0, /* binaryfunc nb_multiply */
     0, /* binaryfunc nb_divide */
@@ -392,7 +392,7 @@ static PyNumberMethods Pattern_as_number = {
     0, /* binaryfunc nb_rshift */
     0, /* binaryfunc nb_and */
     0, /* binaryfunc nb_xor */
-    (binaryfunc)Pattern_concat, /* binaryfunc nb_or */
+    0, /* binaryfunc nb_or */
     0, /* coercion nb_coerce */
     0, /* unaryfunc nb_int */
     0, /* unaryfunc nb_long */
