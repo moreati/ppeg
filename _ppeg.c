@@ -338,8 +338,8 @@ Pattern_concat (PyObject *self, PyObject *other)
     }
     else
     {
-        Py_ssize_t l1 = ((Pattern *)(self))->prog_len;
-        Py_ssize_t l2 = ((Pattern *)(other))->prog_len;
+        Py_ssize_t l1 = pattsize(self);
+        Py_ssize_t l2 = pattsize(other);
         PyObject *type = PyObject_Type(self);
         Instruction *np;
         PyObject *result = new_pattern(type, l1 + l2, &np);
@@ -375,6 +375,48 @@ static PyMethodDef Pattern_methods[] = {
     {NULL}  /* Sentinel */
 };
 
+static PyNumberMethods Pattern_as_number = {
+    0, /* binaryfunc nb_add */
+    0, /* binaryfunc nb_subtract */
+    0, /* binaryfunc nb_multiply */
+    0, /* binaryfunc nb_divide */
+    0, /* binaryfunc nb_remainder */
+    0, /* binaryfunc nb_divmod */
+    0, /* ternaryfunc nb_power */
+    0, /* unaryfunc nb_negative */
+    0, /* unaryfunc nb_positive */
+    0, /* unaryfunc nb_absolute */
+    0, /* inquiry nb_nonzero */
+    0, /* unaryfunc nb_invert */
+    0, /* binaryfunc nb_lshift */
+    0, /* binaryfunc nb_rshift */
+    0, /* binaryfunc nb_and */
+    0, /* binaryfunc nb_xor */
+    (binaryfunc)Pattern_concat, /* binaryfunc nb_or */
+    0, /* coercion nb_coerce */
+    0, /* unaryfunc nb_int */
+    0, /* unaryfunc nb_long */
+    0, /* unaryfunc nb_float */
+    0, /* unaryfunc nb_oct */
+    0, /* unaryfunc nb_hex */
+    0, /* binaryfunc nb_inplace_add */
+    0, /* binaryfunc nb_inplace_subtract */
+    0, /* binaryfunc nb_inplace_multiply */
+    0, /* binaryfunc nb_inplace_divide */
+    0, /* binaryfunc nb_inplace_remainder */
+    0, /* ternaryfunc nb_inplace_power */
+    0, /* binaryfunc nb_inplace_lshift */
+    0, /* binaryfunc nb_inplace_rshift */
+    0, /* binaryfunc nb_inplace_and */
+    0, /* binaryfunc nb_inplace_xor */
+    0, /* binaryfunc nb_inplace_or */
+    0, /* binaryfunc nb_floor_divide */
+    0, /* binaryfunc nb_true_divide */
+    0, /* binaryfunc nb_inplace_floor_divide */
+    0, /* binaryfunc nb_inplace_true_divide */
+    0, /* unaryfunc nb_index */
+};
+
 static PyTypeObject PatternType = {
     PyObject_HEAD_INIT(NULL)
     0,                         /*ob_size*/
@@ -388,7 +430,7 @@ static PyTypeObject PatternType = {
     0,                         /*tp_setattr*/
     0,                         /*tp_compare*/
     0,                         /*tp_repr*/
-    0,                         /*tp_as_number*/
+    &Pattern_as_number,        /*tp_as_number*/
     0,                         /*tp_as_sequence*/
     0,                         /*tp_as_mapping*/
     0,                         /*tp_hash */
