@@ -9,21 +9,39 @@ from contextlib import contextmanager
 def stdout(fd):
     old = sys.stdout
     sys.stdout = fd
-    yield
+    yield fd
     sys.stdout = old
 
 class TestBasic(unittest.TestCase):
     def testpat(self):
         p = Pattern()
-        self.assert_(p is not None)
-    def testdump(self):
-        p = Pattern()
-        with stdout(StringIO()):
-            self.assertEqual(p.dump(), None)
+        self.assertEqual(type(p), Pattern)
+    def testdisplay(self):
+        p = Pattern.Any(1)
+        with stdout(StringIO()) as s:
+            p.display()
+        self.assertNotEqual(s.getvalue(), '')
+
+class TestBuild(unittest.TestCase):
+    def match(self, pat, items):
+        self.assertEqual([i[0] for i in pat.dump()], items + ['end'])
+    def testany(self):
+        self.match(Pattern.Any(0), [])
+        self.match(Pattern.Any(1), ['any'])
+        # Negative self.match - any & fail
+        self.match(Pattern.Any(-1), ['any', 'fail'])
+        # Overflow - max of 255 per opcode
+        self.match(Pattern.Any(300), ['any', 'any'])
+    def testmatch1(self):
+        self.match(Pattern.Match('a'), ['char'])
+    def testmatch2(self):
+        self.match(Pattern.Match('ab'), ['char', 'char'])
+    def testfail(self):
+        self.match(Pattern.Fail(), ['fail'])
+
+class TestMatch(unittest.TestCase):
     def testdummy(self):
         p = Pattern.Dummy()
-        with stdout(StringIO()):
-            self.assertEqual(p.dump(), None)
         self.assertEqual(p("aOmega"), 6)
     def testany(self):
         p = Pattern.Any(0)
