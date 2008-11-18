@@ -165,6 +165,62 @@ static PyObject *newcharset (PyObject *cls, Instruction **prog)
     return result;
 }
 
+static PyObject *
+Pattern_Set(PyObject *cls, PyObject *arg)
+{
+    char *str;
+    Py_ssize_t len;
+    PyObject *result;
+    Instruction *p;
+
+    if (PyString_AsStringAndSize(arg, &str, &len) == -1)
+        return NULL;
+
+    if (len == 1) {
+        /* a unit set is equivalent to a literal */
+        result = new_pattern(cls, len, &p);
+        if (result)
+            setinstaux(p, IChar, 0, (byte)(*str));
+    } else {
+        result = newcharset(cls, &p);
+        if (result) {
+            while (len--) {
+                setchar(p[1].buff, (byte)(*str));
+                str++;
+            }
+        }
+    }
+    return result;
+}
+
+static PyObject *
+Pattern_Range(PyObject *cls, PyObject *arg)
+{
+    char *str;
+    Py_ssize_t len;
+    PyObject *result;
+    Instruction *p;
+
+    if (PyString_AsStringAndSize(arg, &str, &len) == -1)
+        return NULL;
+    if (len % 2) {
+        /* Argument must be a string of even length */
+        PyErr_SetString(PyExc_ValueError, "Range argument must be a string of even length");
+        return NULL;
+    }
+
+    result = newcharset(cls, &p);
+    if (result == NULL)
+        return NULL;
+
+    for (; len > 0; len -= 2, str += 2) {
+        int c;
+        for (c = (byte)str[0]; c <= (byte)str[1]; c++)
+            setchar(p[1].buff, c);
+    }
+    return result;
+}
+
 static PyObject *any (PyObject *cls, int n, int extra, int *offsetp, Instruction **prog)
 {
     int offset = offsetp ? *offsetp : 0;
@@ -495,6 +551,12 @@ static PyMethodDef Pattern_methods[] = {
     },
     {"Fail", (PyCFunction)Pattern_Fail, METH_NOARGS | METH_CLASS,
      "A pattern which never matches"
+    },
+    {"Set", (PyCFunction)Pattern_Set, METH_O | METH_CLASS,
+     "A pattern which matches a set of character(s)"
+    },
+    {"Range", (PyCFunction)Pattern_Range, METH_O | METH_CLASS,
+     "A pattern which matches a set of character(s) given as ranges"
     },
     {"Dummy", (PyCFunction)Pattern_Dummy, METH_NOARGS | METH_CLASS,
      "A static value for testing"
