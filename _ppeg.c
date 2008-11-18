@@ -31,12 +31,18 @@ typedef struct {
     /* Type-specific fields go here. */
     Instruction *prog;
     Py_ssize_t prog_len;
+    /* Environment values for the pattern. In theory, this should never be
+     * self-referential, but in practice we should probably handle cytclic GC
+     * here
+     */
+    PyObject *env;
 } Pattern;
 
 static void
 Pattern_dealloc(Pattern* self)
 {
     PyMem_Del(self->prog);
+    Py_XDECREF(self->env);
     self->ob_type->tp_free((PyObject*)self);
 }
 
@@ -47,6 +53,7 @@ Pattern_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 
     self = (Pattern *)type->tp_alloc(type, 0);
     self->prog = NULL;
+    self->env = NULL;
     return (PyObject *)self;
 }
 
@@ -57,7 +64,22 @@ Pattern_init(Pattern *self, PyObject *args, PyObject *kwds)
     if (self->prog == NULL)
         return -1;
     setinst(self->prog, IEnd, 0);
+    self->prog_len = 1;
 
+    return 0;
+}
+
+static int
+Pattern_traverse(Pattern *self, visitproc visit, void *arg)
+{
+    Py_VISIT(self->env);
+    return 0;
+}
+
+static int
+Pattern_clear(Pattern *self)
+{
+    Py_CLEAR(self->env);
     return 0;
 }
 
@@ -79,6 +101,7 @@ new_pattern(PyObject *cls, Py_ssize_t n, Instruction **prog)
     }
 
     setinst(result->prog + n, IEnd, 0);
+    result->prog_len = n + 1;
 
     if (prog)
         *prog = result->prog;
@@ -103,9 +126,8 @@ static PyObject *any (PyObject *cls, int n, int extra, int *offsetp, Instruction
         setinstaux(p1++, IAny, 0, UCHAR_MAX);
         setinstaux(p1++, IAny, 0, n);
         if (offsetp) *offsetp = p1 - p;
+        if (prog) *prog = p;
     }
-    if (prog)
-        *prog = p;
     return result;
 }
 
@@ -209,6 +231,91 @@ Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
     return PyInt_FromLong(e - str);
 }
 
+Py_ssize_t
+jointables (Pattern *p1, Pattern *p2)
+{
+    Py_ssize_t n;
+
+    if (p1->env == NULL) {
+        n = 0;
+        if (p2->env != NULL) {
+            p1->env = p2->env;
+            Py_INCREF(p1->env);
+        }
+    } else {
+        n = PyList_Size(p1->env);
+        if (p2->env != NULL) {
+            /* Lists do support inplace concat */
+            PyObject *new = PySequence_InPlaceConcat(p1->env, p2->env);
+            if (new == NULL) {
+                /* Error - what do we do??!? */
+            }
+            Py_XDECREF(new);
+        }
+    }
+    return n;
+}
+
+#define pattsize(p) ((((Pattern*)(p))->prog_len) - 1)
+
+Py_ssize_t
+addpatt (Pattern *p1, Instruction *p, Pattern *p2)
+{
+    Py_ssize_t sz = pattsize(p2);
+    Py_ssize_t corr = jointables(p1, p2);
+    copypatt(p, p2->prog, sz + 1);
+    if (corr != 0) {
+        Instruction *px;
+        for (px = p; px < p + sz; px += sizei(px)) {
+            if (isfenvoff(px) && px->i.offset != 0)
+                px->i.offset += corr;
+        }
+    }
+    return sz;
+}
+
+PyObject *
+Pattern_concat (PyObject *self, PyObject *other)
+{
+    /* TODO: Saner casting */
+    Instruction *p1 = ((Pattern *)(self))->prog;
+    Instruction *p2 = ((Pattern *)(other))->prog;
+
+    if (isfail(p1) || issucc(p2)) {
+        /* fail * x == fail; x * true == x */
+        Py_INCREF(self);
+        return self;
+    }
+
+    if (isfail(p2) || issucc(p1)) {
+        /* true * x == x; x * fail == fail */
+        Py_INCREF(other);
+        return other;
+    }
+
+    if (isany(p1) && isany(p2)) {
+        PyObject *type = PyObject_Type(self);
+        PyObject *result = any(type, p1->i.aux, + p2->i.aux, 0, NULL, NULL);
+        Py_DECREF(type);
+        return result;
+    }
+    else
+    {
+        Py_ssize_t l1 = ((Pattern *)(self))->prog_len;
+        Py_ssize_t l2 = ((Pattern *)(other))->prog_len;
+        PyObject *type = PyObject_Type(self);
+        Instruction *np;
+        PyObject *result = new_pattern(type, l1 + l2, &np);
+        Py_DECREF(type);
+        if (result) {
+            Instruction *p = np + addpatt(result, np, self);
+            addpatt(result, p, other);
+            optimizecaptures(np);
+        }
+        return result;
+    }
+}
+
 static PyMethodDef Pattern_methods[] = {
     {"dump", (PyCFunction)Pattern_dump, METH_NOARGS,
      "Dump the pattern, for debugging"
@@ -234,7 +341,8 @@ static PyTypeObject PatternType = {
     "_ppeg.Pattern",           /*tp_name*/
     sizeof(Pattern),           /*tp_basicsize*/
     0,                         /*tp_itemsize*/
-    (destructor)Pattern_dealloc, /*tp_dealloc*/
+    (destructor)Pattern_dealloc,
+                               /*tp_dealloc*/
     0,                         /*tp_print*/
     0,                         /*tp_getattr*/
     0,                         /*tp_setattr*/
@@ -249,10 +357,11 @@ static PyTypeObject PatternType = {
     0,                         /*tp_getattro*/
     0,                         /*tp_setattro*/
     0,                         /*tp_as_buffer*/
-    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE,        /*tp_flags*/
-    "Pattern object",           /* tp_doc */
-    0,                         /* tp_traverse */
-    0,                         /* tp_clear */
+    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_HAVE_GC,
+                               /*tp_flags*/
+    "Pattern object",          /* tp_doc */
+    Pattern_traverse,          /* tp_traverse */
+    Pattern_clear,             /* tp_clear */
     0,                         /* tp_richcompare */
     0,                         /* tp_weaklistoffset */
     0,                         /* tp_iter */
@@ -265,7 +374,7 @@ static PyTypeObject PatternType = {
     0,                         /* tp_descr_get */
     0,                         /* tp_descr_set */
     0,                         /* tp_dictoffset */
-    (initproc)Pattern_init,                         /* tp_init */
+    (initproc)Pattern_init,    /* tp_init */
     0,                         /* tp_alloc */
     Pattern_new,               /* tp_new */
 };
