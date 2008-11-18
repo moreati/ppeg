@@ -115,6 +115,33 @@ Pattern_dump(Pattern* self)
     Py_RETURN_NONE;
 }
 
+static PyObject *
+Pattern_decompile(Pattern *self)
+{
+    PyObject *result = PyList_New(0);
+    Instruction *p = self->prog;
+
+    if (result == NULL)
+        return NULL;
+
+    for (;;) {
+        PyObject *item = Py_BuildValue("(iii)", p->i.code, p->i.aux, p->i.offset);
+        if (item == NULL) {
+            Py_DECREF(result);
+            return NULL;
+        }
+        if (PyList_Append(result, item) == -1) {
+            Py_DECREF(item);
+            Py_DECREF(result);
+            return NULL;
+        }
+        if (p->i.code == IEnd) break;
+        p += sizei(p);
+    }
+
+    return result;
+}
+
 static PyObject *any (PyObject *cls, int n, int extra, int *offsetp, Instruction **prog)
 {
     int offset = offsetp ? *offsetp : 0;
@@ -295,7 +322,7 @@ Pattern_concat (PyObject *self, PyObject *other)
 
     if (isany(p1) && isany(p2)) {
         PyObject *type = PyObject_Type(self);
-        PyObject *result = any(type, p1->i.aux, + p2->i.aux, 0, NULL, NULL);
+        PyObject *result = any(type, p1->i.aux + p2->i.aux, 0, NULL, NULL);
         Py_DECREF(type);
         return result;
     }
@@ -308,8 +335,8 @@ Pattern_concat (PyObject *self, PyObject *other)
         PyObject *result = new_pattern(type, l1 + l2, &np);
         Py_DECREF(type);
         if (result) {
-            Instruction *p = np + addpatt(result, np, self);
-            addpatt(result, p, other);
+            Instruction *p = np + addpatt((Pattern*)result, np, (Pattern*)self);
+            addpatt((Pattern*)result, p, (Pattern*)other);
             optimizecaptures(np);
         }
         return result;
@@ -317,6 +344,9 @@ Pattern_concat (PyObject *self, PyObject *other)
 }
 
 static PyMethodDef Pattern_methods[] = {
+    {"decompile", (PyCFunction)Pattern_decompile, METH_NOARGS,
+     "Build a list representing the pattern, for debugging"
+    },
     {"dump", (PyCFunction)Pattern_dump, METH_NOARGS,
      "Dump the pattern, for debugging"
     },
@@ -360,8 +390,9 @@ static PyTypeObject PatternType = {
     Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_HAVE_GC,
                                /*tp_flags*/
     "Pattern object",          /* tp_doc */
-    Pattern_traverse,          /* tp_traverse */
-    Pattern_clear,             /* tp_clear */
+    (traverseproc)Pattern_traverse,
+                               /* tp_traverse */
+    (inquiry)Pattern_clear,    /* tp_clear */
     0,                         /* tp_richcompare */
     0,                         /* tp_weaklistoffset */
     0,                         /* tp_iter */
