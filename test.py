@@ -39,6 +39,52 @@ class TestBuild(unittest.TestCase):
     def testfail(self):
         self.match(Pattern.Fail(), ['fail'])
 
+class TestOp(unittest.TestCase):
+    def testconcatany(self):
+        p1 = Pattern.Any(2)
+        p2 = Pattern.Any(1) | Pattern.Any(1)
+        self.assertEqual(p1.dump(), p2.dump())
+    def testconcatid(self):
+        p1 = Pattern.Dummy()
+        p2 = Pattern() | p1
+        self.assertEqual(p1.dump(), p2.dump())
+        p2 = p1 | Pattern()
+        self.assertEqual(p1.dump(), p2.dump())
+    def testconcatfail(self):
+        p1 = Pattern.Dummy()
+        p2 = Pattern.Fail() | p1
+        self.assertEqual(p2.dump(), Pattern.Fail().dump())
+        p2 = p1 | Pattern.Fail()
+        self.assertEqual(p2.dump(), Pattern.Fail().dump())
+    def testconcatmatch(self):
+        splits = [
+            ('a', 'bcd'),
+            ('ab', 'cd'),
+            ('abc', 'd'),
+            ('a', '', 'bcd'),
+            ('a', 'b', 'cd'),
+            ('a', 'bc', 'd'),
+            ('ab', '', 'cd'),
+            ('ab', 'c', 'd'),
+            ('abc', '', 'd'),
+            ('a', 'b', 'c', 'd'),
+        ]
+        p1 = Pattern.Match("abcd")
+        for split in splits:
+            p2 = Pattern.Match(split[0])
+            for s in split[1:]:
+                p2 = p2 | Pattern.Match(s)
+            self.assertEqual(p1.dump(), p2.dump())
+            p2 = Pattern.Match('')
+            for s in split:
+                p2 = p2 | Pattern.Match(s)
+            self.assertEqual(p1.dump(), p2.dump())
+            p2 = Pattern.Match(split[0])
+            for s in split[1:]:
+                p2 = p2 | Pattern.Match(s)
+            p2 = p2 | Pattern.Match('')
+            self.assertEqual(p1.dump(), p2.dump())
+
 class TestMatch(unittest.TestCase):
     def testdummy(self):
         p = Pattern.Dummy()
