@@ -38,6 +38,16 @@ class TestBuild(unittest.TestCase):
         self.match(Pattern.Match('ab'), ['char', 'char'])
     def testfail(self):
         self.match(Pattern.Fail(), ['fail'])
+    def testset(self):
+        p = Pattern.Set("abdef")
+        self.match(p, ['set'])
+        self.assertEqual([p(s) for s in "abcdefgh"],
+                [1, 1, None, 1, 1, 1, None, None])
+    def testrange(self):
+        p = Pattern.Range("bceg")
+        self.match(p, ['set'])
+        self.assertEqual([p(s) for s in "abcdefgh"],
+                [None, 1, 1, None, 1, 1, 1, None])
 
 class TestConcat(unittest.TestCase):
     def testany(self):
