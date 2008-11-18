@@ -1,6 +1,9 @@
 /* vim: set et: */
 #include <Python.h>
+/* Override stdio printing */
+#define printf PySys_WriteStdout
 #include "lpeg.c"
+#undef printf
 
 /* }====================================================== */
 
@@ -109,23 +112,30 @@ new_pattern(PyObject *cls, Py_ssize_t n, Instruction **prog)
 }
 
 static PyObject *
-Pattern_dump(Pattern* self)
+Pattern_display(Pattern* self)
 {
     printpatt(self->prog);
     Py_RETURN_NONE;
 }
 
 static PyObject *
-Pattern_decompile(Pattern *self)
+Pattern_dump(Pattern *self)
 {
     PyObject *result = PyList_New(0);
     Instruction *p = self->prog;
+    static const char *const names[] = {
+        "any", "char", "set", "span", "ret", "end", "choice", "jmp", "call",
+        "open_call", "commit", "partial_commit", "back_commit", "failtwice",
+        "fail", "giveup", "func", "fullcapture", "emptycapture",
+        "emptycaptureidx", "opencapture", "closecapture", "closeruntime"
+    };
 
     if (result == NULL)
         return NULL;
 
     for (;;) {
-        PyObject *item = Py_BuildValue("(iii)", p->i.code, p->i.aux, p->i.offset);
+        PyObject *item = Py_BuildValue("(sii)", names[p->i.code],
+                p->i.aux, p->i.offset);
         if (item == NULL) {
             Py_DECREF(result);
             return NULL;
@@ -344,11 +354,11 @@ Pattern_concat (PyObject *self, PyObject *other)
 }
 
 static PyMethodDef Pattern_methods[] = {
-    {"decompile", (PyCFunction)Pattern_decompile, METH_NOARGS,
+    {"dump", (PyCFunction)Pattern_dump, METH_NOARGS,
      "Build a list representing the pattern, for debugging"
     },
-    {"dump", (PyCFunction)Pattern_dump, METH_NOARGS,
-     "Dump the pattern, for debugging"
+    {"display", (PyCFunction)Pattern_display, METH_NOARGS,
+     "Print the pattern, for debugging"
     },
     {"Any", (PyCFunction)Pattern_Any, METH_O | METH_CLASS,
      "A pattern which matches any character(s)"
