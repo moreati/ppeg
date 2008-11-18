@@ -152,6 +152,19 @@ Pattern_dump(Pattern *self)
     return result;
 }
 
+static PyObject *newcharset (PyObject *cls, Instruction **prog)
+{
+    Instruction *p;
+    PyObject *result = new_pattern(cls, CHARSETINSTSIZE, &p);
+    if (result) {
+        p[0].i.code = ISet;
+        p[0].i.offset = 0;
+        loopset(i, p[1].buff[i] = 0);
+        if (prog) *prog = p;
+    }
+    return result;
+}
+
 static PyObject *any (PyObject *cls, int n, int extra, int *offsetp, Instruction **prog)
 {
     int offset = offsetp ? *offsetp : 0;
@@ -353,6 +366,120 @@ Pattern_concat (PyObject *self, PyObject *other)
     }
 }
 
+PyObject *
+Pattern_and (PyObject *self)
+{
+    /* TODO: Saner casting */
+    Instruction *p1 = ((Pattern *)(self))->prog;
+    CharsetTag st1;
+    Instruction *p;
+    PyObject *type;
+    PyObject *result;
+
+    if (isfail(p1) || issucc(p1)) {
+        /* &fail == fail; &true == true */
+        Py_INCREF(self);
+        return self;
+    }
+
+    type = PyObject_Type(self);
+
+    if (tocharset(p1, &st1) == ISCHARSET) {
+        result = new_pattern(type, CHARSETINSTSIZE + 1, &p);
+        if (result) {
+            setinst(p, ISet, CHARSETINSTSIZE + 1);
+            loopset(i, p[1].buff[i] = ~st1.cs[i]);
+            setinst(p + CHARSETINSTSIZE, IFail, 0);
+        }
+    }
+    else {
+        Py_ssize_t l1 = pattsize(self);
+        result = new_pattern(type, 1 + l1 + 2, &p);
+        if (result) {
+            setinst(p++, IChoice, 1 + l1 + 1);
+            p += addpatt((Pattern*)result, p, (Pattern*)self);
+            setinst(p++, IBackCommit, 2);
+            setinst(p, IFail, 0);
+        }
+    }
+
+    Py_DECREF(type);
+    return result;
+}
+
+static PyObject *
+Pattern_diff (PyObject *self, PyObject *other)
+{
+    /* TODO: Saner casting */
+    Instruction *p1 = ((Pattern *)(self))->prog;
+    Instruction *p2 = ((Pattern *)(other))->prog;
+    Py_ssize_t l1 = pattsize(self);
+    Py_ssize_t l2 = pattsize(other);
+    PyObject *type = PyObject_Type(self);
+    PyObject *result;
+    CharsetTag st1, st2;
+    Instruction *p;
+
+    if (tocharset(p1, &st1) == ISCHARSET && tocharset(p2, &st2) == ISCHARSET) {
+        result = newcharset(type, &p);
+        if (result)
+            loopset(i, p[1].buff[i] = st1.cs[i] & ~st2.cs[i]);
+    }
+    else if (isheadfail(p2)) {
+        result = new_pattern(type, l2 + 1 + l1, &p);
+        if (result) {
+            p += addpatt((Pattern*)result, p, (Pattern*)other);
+            check2test(p - l2, l2 + 1);
+            setinst(p++, IFail, 0);
+            addpatt((Pattern*)result, p, (Pattern*)self);
+        }
+    }
+    else {  /* !e2 . e1 */
+        /* !e -> choice L1; e; failtwice; L1: ... */
+        Instruction *pi;
+        result = new_pattern(type, 1 + l2 + 1 + l1, &p);
+        if (result) {
+            pi = p;
+            setinst(p++, IChoice, 1 + l2 + 1);
+            p += addpatt((Pattern*)result, p, (Pattern*)other);
+            setinst(p++, IFailTwice, 0);
+            addpatt((Pattern*)result, p, (Pattern*)self);
+            optimizechoice(pi);
+        }
+    }
+
+    Py_DECREF(type);
+    return result;
+}
+
+
+static PyObject *
+Pattern_negate (PyObject *self)
+{
+    Instruction *p = ((Pattern*)(self))->prog;
+    PyObject *type = PyObject_Type(self);
+    PyObject *result;
+
+    if (isfail(p)) {  /* -false? */
+        result = PyObject_CallFunction(type, ""); /* true */
+    }
+    else if (issucc(p)) {  /* -true? */
+        Instruction *p1;
+        result = new_pattern(type, 1, &p1);  /* false */
+        if (result)
+            setinst(p1, IFail, 0);
+    }
+    else {  /* -A == '' - A */
+        result = PyObject_CallFunction(type, "");
+        if (result)
+            result = Pattern_diff(result, self);
+    }
+
+    Py_DECREF(type);
+    return result;
+}
+
+
 static PyMethodDef Pattern_methods[] = {
     {"dump", (PyCFunction)Pattern_dump, METH_NOARGS,
      "Build a list representing the pattern, for debugging"
@@ -377,14 +504,14 @@ static PyMethodDef Pattern_methods[] = {
 
 static PyNumberMethods Pattern_as_number = {
     (binaryfunc)Pattern_concat, /* binaryfunc nb_add */
-    0, /* binaryfunc nb_subtract */
+    (binaryfunc)Pattern_diff,   /* binaryfunc nb_subtract */
     0, /* binaryfunc nb_multiply */
     0, /* binaryfunc nb_divide */
     0, /* binaryfunc nb_remainder */
     0, /* binaryfunc nb_divmod */
     0, /* ternaryfunc nb_power */
-    0, /* unaryfunc nb_negative */
-    0, /* unaryfunc nb_positive */
+    (unaryfunc)Pattern_negate, /* unaryfunc nb_negative */
+    (unaryfunc)Pattern_and, /* unaryfunc nb_positive */
     0, /* unaryfunc nb_absolute */
     0, /* inquiry nb_nonzero */
     0, /* unaryfunc nb_invert */

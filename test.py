@@ -39,24 +39,24 @@ class TestBuild(unittest.TestCase):
     def testfail(self):
         self.match(Pattern.Fail(), ['fail'])
 
-class TestOp(unittest.TestCase):
-    def testconcatany(self):
+class TestConcat(unittest.TestCase):
+    def testany(self):
         p1 = Pattern.Any(2)
         p2 = Pattern.Any(1) + Pattern.Any(1)
         self.assertEqual(p1.dump(), p2.dump())
-    def testconcatid(self):
+    def testid(self):
         p1 = Pattern.Dummy()
         p2 = Pattern() + p1
         self.assertEqual(p1.dump(), p2.dump())
         p2 = p1 + Pattern()
         self.assertEqual(p1.dump(), p2.dump())
-    def testconcatfail(self):
+    def testfail(self):
         p1 = Pattern.Dummy()
         p2 = Pattern.Fail() + p1
         self.assertEqual(p2.dump(), Pattern.Fail().dump())
         p2 = p1 + Pattern.Fail()
         self.assertEqual(p2.dump(), Pattern.Fail().dump())
-    def testconcatmatch(self):
+    def testmatch(self):
         splits = [
             ('a', 'bcd'),
             ('ab', 'cd'),
@@ -84,6 +84,37 @@ class TestOp(unittest.TestCase):
                 p2 = p2 + Pattern.Match(s)
             p2 = p2 + Pattern.Match('')
             self.assertEqual(p1.dump(), p2.dump())
+
+class TestAnd(unittest.TestCase):
+    def match(self, pat, items):
+        self.assertEqual([i[0] for i in pat.dump()], items + ['end'])
+    def testtrue(self):
+        self.match(+Pattern(), [])
+    def testfail(self):
+        self.match(+Pattern.Fail(), ['fail'])
+    def testanycset(self):
+        # &Any(1) is a 0-length match of any character. This is
+        # optimised as a match against a character set with every bit set -
+        # if the match succeeds, the pattern fails.
+        self.match(+Pattern.Any(1), ['set', 'fail'])
+    def testother(self):
+        self.match(+Pattern.Any(5), ['choice', 'any', 'back_commit', 'fail'])
+    def testlonger(self):
+        p = Pattern.Any(1) + Pattern.Match('ab')
+        self.match(+p, ['choice', 'any', 'char', 'char', 'back_commit', 'fail'])
+
+class TestDiff(unittest.TestCase):
+    def match(self, pat, items):
+        self.assertEqual([i[0] for i in pat.dump()], items + ['end'])
+    def testtrue(self):
+        self.match(-Pattern(), ['fail'])
+    def testfail(self):
+        self.match(-Pattern.Fail(), [])
+    def testdiff(self):
+        # Not an obvious translation - the optimizer hits us. This has been
+        # validated against the Lua lpeg implementation
+        p = Pattern.Match('bc') - Pattern.Match('ef')
+        self.match(p, ['char', 'choice', 'char', 'failtwice', 'char', 'char'])
 
 class TestMatch(unittest.TestCase):
     def testdummy(self):
