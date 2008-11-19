@@ -113,6 +113,17 @@ class TestAnd(unittest.TestCase):
         p = Pattern.Any(1) + Pattern.Match('ab')
         self.match(+p, ['choice', 'any', 'char', 'char', 'back_commit', 'fail'])
 
+class TestPow(unittest.TestCase):
+    # TODO: Add more tests!!!
+    def match(self, pat, items):
+        self.assertEqual([i[0] for i in pat.dump()], items + ['end'])
+    def testsimple(self):
+        self.match(Pattern.Any(1) ** 3, ['any', 'any', 'any', 'span'])
+    def testmatch(self):
+        p = Pattern.Match("foo") ** 0
+        self.assertEqual(p("boofoo"), 0)
+        self.assertEqual(p("foofoo"), 6)
+
 class TestDiff(unittest.TestCase):
     def match(self, pat, items):
         self.assertEqual([i[0] for i in pat.dump()], items + ['end'])

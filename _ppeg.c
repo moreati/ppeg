@@ -535,6 +535,150 @@ Pattern_negate (PyObject *self)
     return result;
 }
 
+static PyObject *
+repeatcharset (PyObject *cls, Charset cs, int l1, int n, PyObject *patt)
+{
+    /* e; ...; e; span; */
+    int i;
+    Instruction *p;
+    PyObject *result = new_pattern(cls, n*l1 + CHARSETINSTSIZE, &p);
+    if (result == NULL)
+        return NULL;
+    for (i = 0; i < n; i++) {
+        p += addpatt((Pattern*)result, p, (Pattern*)patt);
+    }
+    setinst(p, ISpan, 0);
+    loopset(k, p[1].buff[k] = cs[k]);
+    return result;
+}
+
+static PyObject *
+repeatheadfail (PyObject *cls, int l1, int n, PyObject *patt, Instruction **op)
+{
+    /* e; ...; e; L2: e'(L1); jump L2; L1: ... */
+    int i;
+    Instruction *p;
+    PyObject *result;
+
+    result = new_pattern(cls, (n + 1)*l1 + 1, &p);
+    if (result == NULL)
+        return NULL;
+    if (op) *op = p;
+    for (i = 0; i < n; i++) {
+        p += addpatt((Pattern *)result, p, (Pattern *)patt);
+    }
+    p += addpatt((Pattern *)result, p, (Pattern *)patt);
+    check2test(p - l1, l1 + 1);
+    setinst(p, IJmp, -l1);
+    return result;
+}
+
+static PyObject *
+repeats (PyObject *cls, Instruction *p1, int l1, int n, PyObject *patt, Instruction **op)
+{
+  /* e; ...; e; choice L1; L2: e; partialcommit L2; L1: ... */
+    int i;
+    Instruction *p;
+    PyObject *result;
+    
+    result = new_pattern(cls, (n + 1)*l1 + 2, &p);
+    if (result == NULL)
+        return NULL;
+    /* TODO - add verifier
+    if (!verify(L, p1, p1, p1 + l1, 0, 0)) {
+        PyErr_SetString(PyExc_ValueError, "Loop body may accept empty string");
+        Py_DECREF(result);
+        return NULL;
+    }
+    */
+    if (op) *op = p;
+    for (i = 0; i < n; i++) {
+        p += addpatt((Pattern*)result, p, (Pattern*)patt);
+    }
+    setinst(p++, IChoice, 1 + l1 + 1);
+    p += addpatt((Pattern*)result, p, (Pattern*)patt);
+    setinst(p, IPartialCommit, -l1);
+    return result;
+}
+
+static PyObject *
+optionalheadfail (PyObject *cls, int l1, int n, PyObject *patt)
+{
+    Instruction *p;
+    PyObject *result = new_pattern(cls, n * l1, &p);
+    int i;
+    if (result == NULL)
+        return NULL;
+    for (i = 0; i < n; i++) {
+        p += addpatt((Pattern *)result, p, (Pattern *)patt);
+        check2test(p - l1, (n - i)*l1);
+    }
+    return result;
+}
+
+static PyObject *
+optionals (PyObject *cls, int l1, int n, PyObject *patt)
+{
+    /* choice L1; e; partialcommit L2; L2: ... e; L1: commit L3; L3: ... */
+    int i;
+    Instruction *p;
+    Instruction *op;
+    PyObject *result = new_pattern(cls, n*(l1 + 1) + 1, &p);
+    if (result == NULL)
+        return NULL;
+    op = p;
+    setinst(p++, IChoice, 1 + n*(l1 + 1));
+    for (i = 0; i < n; i++) {
+        p += addpatt((Pattern*)result, p, (Pattern*)patt);
+        setinst(p++, IPartialCommit, 1);
+    }
+    setinst(p - 1, ICommit, 1);  /* correct last commit */
+    optimizechoice(op);
+    return result;
+}
+
+static PyObject *
+Pattern_pow (PyObject *self, PyObject *other, PyObject *modulo)
+{
+    int l1;
+    long n = PyInt_AsLong(other);
+    PyObject *type = PyObject_Type(self);
+    PyObject *result;
+    Instruction *p1;
+
+    /* Ignore modulo argument - not meaningful */
+
+    if (n == -1 && PyErr_Occurred())
+        return NULL;
+
+    p1 = ((Pattern*)(self))->prog;
+    l1 = pattsize(self);
+    if (n >= 0) {
+        CharsetTag st;
+        Instruction *op;
+        if (tocharset(p1, &st) == ISCHARSET) {
+            result = repeatcharset(type, st.cs, l1, n, self);
+            goto ret;
+        }
+        if (isheadfail(p1))
+            result = repeatheadfail(type, l1, n, self, &op);
+        else
+            result = repeats(type, p1, l1, n, self, &op);
+        if (result) {
+            optimizecaptures(op);
+            optimizejumps(op);
+        }
+    }
+    else {
+        if (isheadfail(p1))
+            result = optionalheadfail(type, l1, -n, self);
+        else
+            result = optionals(type, l1, -n, self);
+    }
+ret:
+    Py_DECREF(type);
+    return result;
+}
 
 static PyMethodDef Pattern_methods[] = {
     {"dump", (PyCFunction)Pattern_dump, METH_NOARGS,
@@ -571,7 +715,7 @@ static PyNumberMethods Pattern_as_number = {
     0, /* binaryfunc nb_divide */
     0, /* binaryfunc nb_remainder */
     0, /* binaryfunc nb_divmod */
-    0, /* ternaryfunc nb_power */
+    (ternaryfunc)Pattern_pow, /* ternaryfunc nb_power */
     (unaryfunc)Pattern_negate, /* unaryfunc nb_negative */
     (unaryfunc)Pattern_and, /* unaryfunc nb_positive */
     0, /* unaryfunc nb_absolute */
