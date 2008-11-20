@@ -86,6 +86,27 @@ Pattern_clear(Pattern *self)
     return 0;
 }
 
+static int
+value2fenv (PyObject *obj, PyObject *val)
+{
+    Pattern *patt = (Pattern *)obj;
+    Py_XDECREF(patt->env);
+    patt->env = PyList_New(1);
+    if (patt->env == NULL)
+        return -1;
+    Py_INCREF(val);
+    PyList_SET_ITEM(patt->env, 0, val);
+    return 1;
+}
+
+static int
+getlabel(PyObject *obj, PyObject *val)
+{
+    if (val == NULL)
+        return 0;
+    return value2fenv(obj, val);
+}
+
 static PyObject *
 new_pattern(PyObject *cls, Py_ssize_t n, Instruction **prog)
 {
@@ -584,13 +605,18 @@ repeats (PyObject *cls, Instruction *p1, int l1, int n, PyObject *patt, Instruct
     result = new_pattern(cls, (n + 1)*l1 + 2, &p);
     if (result == NULL)
         return NULL;
-    /* TODO - add verifier
-    if (!verify(L, p1, p1, p1 + l1, 0, 0)) {
+
+    /* Note - in verifier, there is a commented-out piece of code relating to
+     * fenv lookups which needs fixing. This appears to be only relevant for
+     * grammars.
+     * TODO: Fix this when implementing grammars.
+     */
+    if (!verify(p1, p1, p1 + l1, 0, 0)) {
         PyErr_SetString(PyExc_ValueError, "Loop body may accept empty string");
         Py_DECREF(result);
         return NULL;
     }
-    */
+
     if (op) *op = p;
     for (i = 0; i < n; i++) {
         p += addpatt((Pattern*)result, p, (Pattern*)patt);
@@ -681,6 +707,54 @@ ret:
     return result;
 }
 
+static PyObject *
+capture_aux (PyObject *cls, PyObject *pat, int kind, PyObject *label)
+{
+    Py_ssize_t l1;
+    int n;
+    Instruction *p1;
+    int lc;
+    PyObject *result = NULL;
+
+    p1 = ((Pattern *)(pat))->prog;
+    l1 = pattsize(pat);
+    lc = skipchecks(p1, 0, &n);
+
+    if (lc == l1) {  /* got whole pattern? */
+        /* may use a IFullCapture instruction at its end */
+        Instruction *p;
+        int labelid = getlabel(result, label);
+        if (labelid == -1)
+            return NULL;
+        result = new_pattern(cls, l1 + 1, &p);
+        if (result) {
+            p += addpatt((Pattern*)result, p, (Pattern*)pat);
+            setinstcap(p, IFullCapture, labelid, kind, n);
+        }
+    }
+    else {  /* must use open-close pair */
+        Instruction *op;
+        Instruction *p;
+        int labelid = getlabel(result, label);
+        if (labelid == -1)
+            return NULL;
+        result = new_pattern(cls, 1 + l1 + 1, &op);
+        if (result) {
+            p = op;
+            setinstcap(p++, IOpenCapture, labelid, kind, 0);
+            p += addpatt((Pattern*)result, p, (Pattern*)pat);
+            setinstcap(p, ICloseCapture, 0, Cclose, 0);
+            optimizecaptures(op);
+        }
+    }
+
+    return result;
+}
+
+static PyObject *Pattern_Capture(PyObject *cls, PyObject *pat) { return capture_aux(cls, pat, Csimple, 0); }
+static PyObject *Pattern_CaptureTab(PyObject *cls, PyObject *pat) { return capture_aux(cls, pat, Ctable, 0); }
+static PyObject *Pattern_CaptureSub(PyObject *cls, PyObject *pat) { return capture_aux(cls, pat, Csubst, 0); }
+
 static PyMethodDef Pattern_methods[] = {
     {"dump", (PyCFunction)Pattern_dump, METH_NOARGS,
      "Build a list representing the pattern, for debugging"
@@ -702,6 +776,15 @@ static PyMethodDef Pattern_methods[] = {
     },
     {"Range", (PyCFunction)Pattern_Range, METH_O | METH_CLASS,
      "A pattern which matches a set of character(s) given as ranges"
+    },
+    {"Cap", (PyCFunction)Pattern_Capture, METH_O | METH_CLASS,
+     "A simple capture"
+    },
+    {"CapT", (PyCFunction)Pattern_Capture, METH_O | METH_CLASS,
+     "A table capture"
+    },
+    {"CapS", (PyCFunction)Pattern_Capture, METH_O | METH_CLASS,
+     "A substitution capture"
     },
     {"Dummy", (PyCFunction)Pattern_Dummy, METH_NOARGS | METH_CLASS,
      "A static value for testing"
