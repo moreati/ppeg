@@ -773,7 +773,8 @@ static PyTypeObject PatternType = {
     0,                         /*tp_getattro*/
     0,                         /*tp_setattro*/
     0,                         /*tp_as_buffer*/
-    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_HAVE_GC,
+    /* Checktypes flag to allow patt ** int - thanks to Thomas Heller */
+    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_HAVE_GC | Py_TPFLAGS_CHECKTYPES,
                                /*tp_flags*/
     "Pattern object",          /* tp_doc */
     (traverseproc)Pattern_traverse,
