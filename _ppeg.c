@@ -642,7 +642,7 @@ Pattern_pow (PyObject *self, PyObject *other, PyObject *modulo)
 {
     int l1;
     long n = PyInt_AsLong(other);
-    PyObject *type = PyObject_Type(self);
+    PyObject *type;
     PyObject *result;
     Instruction *p1;
 
@@ -651,6 +651,7 @@ Pattern_pow (PyObject *self, PyObject *other, PyObject *modulo)
     if (n == -1 && PyErr_Occurred())
         return NULL;
 
+    type = PyObject_Type(self);
     p1 = ((Pattern*)(self))->prog;
     l1 = pattsize(self);
     if (n >= 0) {
