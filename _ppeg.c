@@ -23,12 +23,6 @@ static const Instruction Dummy[] =
     {{IRet,0,0}},
 };
 
-int domatch(Instruction *p, char *s) {
-    Capture cc[IMAXCAPTURES];
-    const char *e = match("", s, s+strlen(s), p, cc, 0);
-    return e-s;
-}
-
 typedef struct {
     PyObject_HEAD
     /* Type-specific fields go here. */
@@ -339,23 +333,6 @@ Pattern_Dummy(PyObject *cls)
     if (result)
         memcpy(p, Dummy, sizeof(Dummy));
     return result;
-}
-
-static PyObject *
-Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
-{
-    char *str;
-    Py_ssize_t len;
-    Capture cc[IMAXCAPTURES];
-    const char *e;
-
-    if (!PyArg_ParseTuple(args, "s#", &str, &len))
-        return NULL;
-
-    e = match("", str, str + len, self->prog, cc, 0);
-    if (e == 0)
-        Py_RETURN_NONE;
-    return PyInt_FromLong(e - str);
 }
 
 Py_ssize_t
@@ -777,6 +754,82 @@ static PyObject *Pattern_CaptureArg(PyObject *cls, PyObject *id) {
     if (result)
         setinstcap(p, IEmptyCapture, n, Carg, 0);
     return result;
+}
+
+typedef struct CapState {
+  Capture *cap;  /* current capture */
+  Capture *ocap;  /* (original) capture list */
+  PyObject *values; /* List of captured values */
+  int ptop;  /* index of last argument to 'match' */
+  const char *s;  /* original string */
+  int valuecached;  /* value stored in cache slot */
+} CapState;
+
+static int pushcapture (CapState *cs) {
+    switch (captype(cs->cap)) {
+        case Cposition: {
+            PyObject *val = PyInt_FromLong(cs->cap->s - cs->s + 1);
+            if (val == NULL)
+                return 0;
+            PyList_Append(cs->values, val);
+            cs->cap++;
+            return 1;
+        }
+        default: return 0;
+    }
+}
+
+static PyObject *getcaptures (Capture **capturep, const char *s, const char *r)
+{
+    Capture *capture = *capturep;
+    int n = 0;
+    PyObject *result = PyList_New(0);
+    if (result == NULL)
+        return NULL;
+
+    if (!isclosecap(capture)) { /* is there any capture? */
+        CapState cs;
+        cs.ocap = cs.cap = capture;
+        cs.values = result;
+        cs.s = s;
+        cs.valuecached = 0;
+        /* TODO: remove */
+        cs.ptop = 0;
+        do { /* collect the values */
+            if (!pushcapture(&cs)) {
+                Py_DECREF(result);
+                return NULL;
+            }
+            n = 1; /* TODO: ???? */
+        } while (!isclosecap(cs.cap));
+    }
+    if (n == 0) { /* No capture values */
+        PyObject *val = PyInt_FromLong(r-s+1);
+        if (!val) {
+            Py_DECREF(result);
+            return NULL;
+        }
+        PyList_Append(result, val);
+    }
+
+    return result;
+}
+
+static PyObject *
+Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
+{
+    char *str;
+    Py_ssize_t len;
+    Capture cc[IMAXCAPTURES];
+    const char *e;
+
+    if (!PyArg_ParseTuple(args, "s#", &str, &len))
+        return NULL;
+
+    e = match("", str, str + len, self->prog, cc, 0);
+    if (e == 0)
+        Py_RETURN_NONE;
+    return getcaptures(&cc, str, e);
 }
 
 static PyMethodDef Pattern_methods[] = {

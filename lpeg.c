@@ -1788,16 +1788,16 @@ static int span_l (lua_State *L) {
 */
 
 
+#if 0
 typedef struct CapState {
   Capture *cap;  /* current capture */
   Capture *ocap;  /* (original) capture list */
-#if 0
   lua_State *L;
-#endif
   int ptop;  /* index of last argument to 'match' */
   const char *s;  /* original string */
   int valuecached;  /* value stored in cache slot */
 } CapState;
+#endif
 
 
 #define captype(cap)	((cap)->kind)
@@ -1823,10 +1823,10 @@ static void updatecache_ (CapState *cs, int v) {
   lua_replace(cs->L, subscache(cs));
   cs->valuecached = v;
 }
-#endif
 
 
 static int pushcapture (CapState *cs);
+#endif
 
 
 static Capture *findopen (Capture *cap) {
@@ -2023,6 +2023,7 @@ typedef struct StrAux {
 
 #define MAXSTRCAPS	10
 
+#if 0
 static int getstrcaps (CapState *cs, StrAux *cps, int n) {
   int k = n++;
   cps[k].isstring = 1;
@@ -2047,7 +2048,6 @@ static int getstrcaps (CapState *cs, StrAux *cps, int n) {
 }
 
 
-#if 0
 /*
 ** add next capture (which should be a string) to buffer
 */
