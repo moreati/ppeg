@@ -138,24 +138,30 @@ class TestDiff(unittest.TestCase):
         self.match(p, ['char', 'choice', 'char', 'failtwice', 'char', 'char'])
 
 class TestCapture(unittest.TestCase):
+    def captype(self, n, p):
+        return p.dump()[n][1] & 0xF
     def match(self, pat, items):
         self.assertEqual([i[0] for i in pat.dump()], items + ['end'])
     def testfullcap(self):
         p = Pattern.Cap(Pattern.Any(1))
         self.match(p, ['any', 'fullcapture'])
-        aux = p.dump()[1][1]
         off = p.dump()[1][2]
         # Csimple == 5
-        self.assertEqual((aux & 0xF), 5)
+        self.assertEqual(self.captype(1, p), 5)
         self.assertEqual(off, 0)
     def testopenclose(self):
         p = Pattern.Cap(Pattern.Any(1)**1)
         self.match(p, ['any', 'opencapture', 'span', 'closecapture'])
-        aux = p.dump()[1][1]
         off = p.dump()[1][2]
         # Csimple == 5
-        self.assertEqual((aux & 0xF), 5)
+        self.assertEqual(self.captype(1, p), 5)
         self.assertEqual(off, 0)
+    def testtypes(self):
+        self.assertEqual(self.captype(0, Pattern.CapP()), 1)
+        self.assertEqual(self.captype(0, Pattern.CapA(1)), 4)
+        self.assertEqual(self.captype(1, Pattern.CapT(Pattern.Any(1))), 6)
+        self.assertEqual(self.captype(1, Pattern.CapS(Pattern.Any(1))), 10)
+
 
 class TestMatch(unittest.TestCase):
     def testdummy(self):
