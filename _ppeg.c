@@ -760,6 +760,7 @@ typedef struct CapState {
   Capture *cap;  /* current capture */
   Capture *ocap;  /* (original) capture list */
   PyObject *values; /* List of captured values */
+  PyObject *args; /* args of match call */
   int ptop;  /* index of last argument to 'match' */
   const char *s;  /* original string */
   int valuecached;  /* value stored in cache slot */
@@ -768,18 +769,30 @@ typedef struct CapState {
 static int pushcapture (CapState *cs) {
     switch (captype(cs->cap)) {
         case Cposition: {
-            PyObject *val = PyInt_FromLong(cs->cap->s - cs->s + 1);
+            long pos = cs->cap->s - cs->s;
+            PyObject *val = PyInt_FromLong(pos);
             if (val == NULL)
                 return 0;
             PyList_Append(cs->values, val);
             cs->cap++;
             return 1;
         }
-        default: return 0;
+        case Carg: {
+            int arg = (cs->cap++)->idx;
+            PyObject *val = PySequence_GetItem(cs->args, arg);
+            if (val == NULL)
+                return 0;
+            PyList_Append(cs->values, val);
+            return 1;
+        }
+        default: {
+            fprintf(stderr, "Not implemented yet: %d\n", captype(cs->cap));
+            return 1;
+        }
     }
 }
 
-static PyObject *getcaptures (Capture **capturep, const char *s, const char *r)
+static PyObject *getcaptures (Capture **capturep, const char *s, const char *r, PyObject *args)
 {
     Capture *capture = *capturep;
     int n = 0;
@@ -795,6 +808,7 @@ static PyObject *getcaptures (Capture **capturep, const char *s, const char *r)
         cs.valuecached = 0;
         /* TODO: remove */
         cs.ptop = 0;
+        cs.args = args;
         do { /* collect the values */
             if (!pushcapture(&cs)) {
                 Py_DECREF(result);
@@ -804,12 +818,14 @@ static PyObject *getcaptures (Capture **capturep, const char *s, const char *r)
         } while (!isclosecap(cs.cap));
     }
     if (n == 0) { /* No capture values */
-        PyObject *val = PyInt_FromLong(r-s+1);
+        PyObject *val = PyInt_FromLong(r - s);
         if (!val) {
             Py_DECREF(result);
             return NULL;
         }
-        PyList_Append(result, val);
+        Py_DECREF(result);
+        result = val;
+        /* PyList_Append(result, val); */
     }
 
     return result;
@@ -820,16 +836,22 @@ Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
 {
     char *str;
     Py_ssize_t len;
-    Capture cc[IMAXCAPTURES];
+    Capture *cc = malloc(IMAXCAPTURES * sizeof(Capture));
     const char *e;
 
+#if 0
     if (!PyArg_ParseTuple(args, "s#", &str, &len))
         return NULL;
+#else
+    PyObject *target = PyTuple_GetItem(args, 0);
+    if (target == NULL || PyString_AsStringAndSize(target, &str, &len) == -1)
+        return NULL;
+#endif
 
     e = match("", str, str + len, self->prog, cc, 0);
     if (e == 0)
         Py_RETURN_NONE;
-    return getcaptures(&cc, str, e);
+    return getcaptures(&cc, str, e, args);
 }
 
 static PyMethodDef Pattern_methods[] = {
