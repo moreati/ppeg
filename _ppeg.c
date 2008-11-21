@@ -755,6 +755,30 @@ static PyObject *Pattern_Capture(PyObject *cls, PyObject *pat) { return capture_
 static PyObject *Pattern_CaptureTab(PyObject *cls, PyObject *pat) { return capture_aux(cls, pat, Ctable, 0); }
 static PyObject *Pattern_CaptureSub(PyObject *cls, PyObject *pat) { return capture_aux(cls, pat, Csubst, 0); }
 
+static PyObject *Pattern_CapturePos(PyObject *cls) {
+    Instruction *p;
+    PyObject *result = new_pattern(cls, 1, &p);
+    if (result)
+        setinstcap(p, IEmptyCapture, 0, Cposition, 0);
+    return result;
+}
+
+static PyObject *Pattern_CaptureArg(PyObject *cls, PyObject *id) {
+    Instruction *p;
+    long n = PyInt_AsLong(id);
+    PyObject *result;
+    if (n == -1 && PyErr_Occurred())
+        return NULL;
+    if (n <= 0 || n > SHRT_MAX) {
+        PyErr_SetString(PyExc_ValueError, "Argument ID out of range");
+        return NULL;
+    }
+    result = new_pattern(cls, 1, &p);
+    if (result)
+        setinstcap(p, IEmptyCapture, n, Carg, 0);
+    return result;
+}
+
 static PyMethodDef Pattern_methods[] = {
     {"dump", (PyCFunction)Pattern_dump, METH_NOARGS,
      "Build a list representing the pattern, for debugging"
@@ -780,11 +804,17 @@ static PyMethodDef Pattern_methods[] = {
     {"Cap", (PyCFunction)Pattern_Capture, METH_O | METH_CLASS,
      "A simple capture"
     },
-    {"CapT", (PyCFunction)Pattern_Capture, METH_O | METH_CLASS,
+    {"CapT", (PyCFunction)Pattern_CaptureTab, METH_O | METH_CLASS,
      "A table capture"
     },
-    {"CapS", (PyCFunction)Pattern_Capture, METH_O | METH_CLASS,
+    {"CapS", (PyCFunction)Pattern_CaptureSub, METH_O | METH_CLASS,
      "A substitution capture"
+    },
+    {"CapP", (PyCFunction)Pattern_CapturePos, METH_NOARGS | METH_CLASS,
+     "A position capture"
+    },
+    {"CapA", (PyCFunction)Pattern_CaptureArg, METH_O | METH_CLASS,
+     "An argument capture"
     },
     {"Dummy", (PyCFunction)Pattern_Dummy, METH_NOARGS | METH_CLASS,
      "A static value for testing"
