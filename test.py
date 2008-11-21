@@ -186,5 +186,13 @@ class TestMatch(unittest.TestCase):
         self.assertEqual(p("jim"), None)
         self.assertEqual(p(""), None)
 
+class TestCaptureRet(unittest.TestCase):
+    def testpos(self):
+        p = Pattern.Any(3) + Pattern.CapP() + Pattern.Any(2) + Pattern.CapP()
+        self.assertEqual(p("abcdef"), [3, 5])
+    def testarg(self):
+        p = Pattern.CapA(1) + Pattern.CapA(3) + Pattern.CapA(2)
+        self.assertEqual(p("abcdef", 1, "hi", None), [1, None, "hi"])
+
 if __name__ == '__main__':
     unittest.main()
