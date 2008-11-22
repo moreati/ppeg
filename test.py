@@ -193,6 +193,9 @@ class TestCaptureRet(unittest.TestCase):
     def testarg(self):
         p = Pattern.CapA(1) + Pattern.CapA(3) + Pattern.CapA(2)
         self.assertEqual(p("abcdef", 1, "hi", None), [1, None, "hi"])
+    def testconst(self):
+        p = Pattern.CapC(["foo", 1, None, "bar"])
+        self.assertEqual(p("abcdef"), [["foo", 1, None, "bar"]])
 
 if __name__ == '__main__':
     unittest.main()
