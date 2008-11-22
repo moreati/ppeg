@@ -29,7 +29,7 @@ typedef struct {
     Instruction *prog;
     Py_ssize_t prog_len;
     /* Environment values for the pattern. In theory, this should never be
-     * self-referential, but in practice we should probably handle cytclic GC
+     * self-referential, but in practice we should probably handle cyclic GC
      * here
      */
     PyObject *env;
@@ -728,9 +728,15 @@ capture_aux (PyObject *cls, PyObject *pat, int kind, PyObject *label)
     return result;
 }
 
-static PyObject *Pattern_Capture(PyObject *cls, PyObject *pat) { return capture_aux(cls, pat, Csimple, 0); }
-static PyObject *Pattern_CaptureTab(PyObject *cls, PyObject *pat) { return capture_aux(cls, pat, Ctable, 0); }
-static PyObject *Pattern_CaptureSub(PyObject *cls, PyObject *pat) { return capture_aux(cls, pat, Csubst, 0); }
+static PyObject *Pattern_Capture(PyObject *cls, PyObject *pat) {
+    return capture_aux(cls, pat, Csimple, 0);
+}
+static PyObject *Pattern_CaptureTab(PyObject *cls, PyObject *pat) {
+    return capture_aux(cls, pat, Ctable, 0);
+}
+static PyObject *Pattern_CaptureSub(PyObject *cls, PyObject *pat) {
+    return capture_aux(cls, pat, Csubst, 0);
+}
 
 static PyObject *Pattern_CapturePos(PyObject *cls) {
     Instruction *p;
@@ -756,11 +762,29 @@ static PyObject *Pattern_CaptureArg(PyObject *cls, PyObject *id) {
     return result;
 }
 
+static PyObject *Pattern_CaptureConst(PyObject *cls, PyObject *val) {
+    Instruction *p;
+    PyObject *result;
+    result = new_pattern(cls, 1, &p);
+    if (result) {
+        setinstcap(p, IEmptyCapture, 0, Cconst, 0);
+        ((Pattern*)result)->env = PyList_New(1);
+        if (((Pattern*)result)->env == NULL) {
+            Py_DECREF(result);
+            return NULL;
+        }
+        Py_INCREF(val);
+        PyList_SET_ITEM(((Pattern*)result)->env, 0, val);
+    }
+    return result;
+}
+
 typedef struct CapState {
   Capture *cap;  /* current capture */
   Capture *ocap;  /* (original) capture list */
   PyObject *values; /* List of captured values */
   PyObject *args; /* args of match call */
+  PyObject *env; /* env of pattern */
   int ptop;  /* index of last argument to 'match' */
   const char *s;  /* original string */
   int valuecached;  /* value stored in cache slot */
@@ -785,6 +809,14 @@ static int pushcapture (CapState *cs) {
             PyList_Append(cs->values, val);
             return 1;
         }
+        case Cconst: {
+            int arg = (cs->cap++)->idx;
+            PyObject *val = PySequence_GetItem(cs->env, arg);
+            if (val == NULL)
+                return 0;
+            PyList_Append(cs->values, val);
+            return 1;
+        }
         default: {
             fprintf(stderr, "Not implemented yet: %d\n", captype(cs->cap));
             return 1;
@@ -792,7 +824,7 @@ static int pushcapture (CapState *cs) {
     }
 }
 
-static PyObject *getcaptures (Capture **capturep, const char *s, const char *r, PyObject *args)
+static PyObject *getcaptures (PyObject *patt, Capture **capturep, const char *s, const char *r, PyObject *args)
 {
     Capture *capture = *capturep;
     int n = 0;
@@ -809,6 +841,7 @@ static PyObject *getcaptures (Capture **capturep, const char *s, const char *r, 
         /* TODO: remove */
         cs.ptop = 0;
         cs.args = args;
+        cs.env = ((Pattern*)patt)->env;
         do { /* collect the values */
             if (!pushcapture(&cs)) {
                 Py_DECREF(result);
@@ -851,7 +884,7 @@ Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
     e = match("", str, str + len, self->prog, cc, 0);
     if (e == 0)
         Py_RETURN_NONE;
-    return getcaptures(&cc, str, e, args);
+    return getcaptures((PyObject*)self, &cc, str, e, args);
 }
 
 static PyMethodDef Pattern_methods[] = {
@@ -890,6 +923,9 @@ static PyMethodDef Pattern_methods[] = {
     },
     {"CapA", (PyCFunction)Pattern_CaptureArg, METH_O | METH_CLASS,
      "An argument capture"
+    },
+    {"CapC", (PyCFunction)Pattern_CaptureConst, METH_O | METH_CLASS,
+     "A constant capture"
     },
     {"Dummy", (PyCFunction)Pattern_Dummy, METH_NOARGS | METH_CLASS,
      "A static value for testing"
