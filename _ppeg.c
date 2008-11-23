@@ -101,6 +101,179 @@ getlabel(PyObject *obj, PyObject *val)
     return value2fenv(obj, val);
 }
 
+/*
+** {======================================================
+** Verifier
+** =======================================================
+*/
+
+static Py_ssize_t getposition(PyObject *patt, PyObject *positions, int i)
+{
+    PyObject *env = ((Pattern*)patt)->env;
+    PyObject *key = PyList_GetItem(env, i);
+    PyObject *val;
+    if (key == NULL)
+        return -1;
+    val = PyDict_GetItem(positions, key);
+    if (val == NULL)
+        return -1;
+    return PyInt_AsSsize_t(val);
+}
+
+static int verify (PyObject *patt, Instruction *op, const Instruction *p,
+                   Instruction *e, PyObject *positions) {
+  static const char dummy[] = "";
+  Stack back[MAXBACK];
+  int backtop = 0;  /* point to first empty slot in back */
+  while (p != e) {
+    switch ((Opcode)p->i.code) {
+      case IRet: {
+        p = back[--backtop].p;
+        continue;
+      }
+      case IChoice: {
+        if (backtop >= MAXBACK)
+	{
+	  PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
+	  return -1;
+	}
+        back[backtop].p = dest(0, p);
+        back[backtop++].s = dummy;
+        p++;
+        continue;
+      }
+      case ICall: {
+        assert((p + 1)->i.code != IRet);  /* no tail call */
+        if (backtop >= MAXBACK)
+	{
+	  PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
+	  return -1;
+	}
+        back[backtop].s = NULL;
+        back[backtop++].p = p + 1;
+        goto dojmp;
+      }
+      case IOpenCall: {
+        int i;
+        if (positions == NULL)  /* grammar still not fixed? */
+          goto fail;  /* to be verified later */
+        for (i = 0; i < backtop; i++) {
+          if (back[i].s == NULL && back[i].p == p + 1) {
+            PyErr_SetString(PyExc_RuntimeError, "Rule is left recursive");
+            /* val2str(L, rule) */
+            return -1;
+          }
+        }
+        if (backtop >= MAXBACK)
+	{
+	  PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
+	  return -1;
+	}
+        back[backtop].s = NULL;
+        back[backtop++].p = p + 1;
+        p = op + getposition(patt, positions, p->i.offset);
+        continue;
+      }
+      case IBackCommit:
+      case ICommit: {
+        assert(backtop > 0 && p->i.offset > 0);
+        backtop--;
+        goto dojmp;
+      }
+      case IPartialCommit: {
+        assert(backtop > 0);
+        if (p->i.offset > 0) goto dojmp;  /* forward jump */
+        else {  /* loop will be detected when checking corresponding rule */
+          assert(positions != NULL);
+          backtop--;
+          p++;  /* just go on now */
+          continue;
+        }
+      }
+      case IAny:
+      case IChar:
+      case ISet: {
+        if (p->i.offset == 0) goto fail;
+        /* else goto dojmp; go through */
+      }
+      case IJmp: 
+      dojmp: {
+        p += p->i.offset;
+        continue;
+      }
+      case IFailTwice:  /* 'not' predicate */
+        goto fail;  /* body could have failed; try to backtrack it */
+      case IFail: {
+        if (p > op && (p - 1)->i.code == IBackCommit) {  /* 'and' predicate? */
+          p++;  /* pretend it succeeded and go ahead */
+          continue;
+        }
+        /* else failed: go through */
+      }
+      fail: { /* pattern failed: try to backtrack */
+        do {
+          if (backtop-- == 0)
+            return 1;  /* no more backtracking */
+        } while (back[backtop].s == NULL);
+        p = back[backtop].p;
+        continue;
+      }
+      case ISpan:
+      case IOpenCapture: case ICloseCapture:
+      case IEmptyCapture: case IEmptyCaptureIdx:
+      case IFullCapture: {
+        p += sizei(p);
+        continue;
+      }
+      case ICloseRunTime: {
+        goto fail;  /* be liberal in this case */
+      }
+      case IFunc: {
+        const char *r = (p+1)->f((p+2)->buff, dummy, dummy, dummy);
+        if (r == NULL) goto fail;
+        p += p->i.offset;
+        continue;
+      }
+      case IEnd:  /* cannot happen (should stop before it) */
+      default: assert(0); return 0;
+    }
+  }
+  assert(backtop == 0);
+  return 0;
+}
+
+
+static void checkrule (PyObject *patt, Instruction *op, int from, int to,
+                       PyObject *positions) {
+  int i;
+  int lastopen = 0;  /* more recent OpenCall seen in the code */
+  for (i = from; i < to; i += sizei(op + i)) {
+    if (op[i].i.code == IPartialCommit && op[i].i.offset < 0) {  /* loop? */
+      int start = dest(op, i);
+      assert(op[start - 1].i.code == IChoice && dest(op, start - 1) == i + 1);
+      if (start <= lastopen) {  /* loop does contain an open call? */
+        if (!verify(patt, op, op + start, op + i, positions)) /* check body */
+#if 0
+          luaL_error(L, "possible infinite loop in %s", val2str(L, rule));
+#else
+	{
+	  PyErr_SetString(PyExc_RuntimeError, "Possible infinite loop");
+	  return;
+	}
+#endif
+      }
+    }
+    else if (op[i].i.code == IOpenCall)
+      lastopen = i;
+  }
+  assert(op[i - 1].i.code == IRet);
+  verify(patt, op, op + from, op + to - 1, positions);
+}
+
+
+
+
+/* }====================================================== */
 static PyObject *
 new_pattern(PyObject *cls, Py_ssize_t n, Instruction **prog)
 {
@@ -588,7 +761,7 @@ repeats (PyObject *cls, Instruction *p1, int l1, int n, PyObject *patt, Instruct
      * grammars.
      * TODO: Fix this when implementing grammars.
      */
-    if (!verify(p1, p1, p1 + l1, 0, 0)) {
+    if (!verify(result, p1, p1, p1 + l1, NULL)) {
         PyErr_SetString(PyExc_ValueError, "Loop body may accept empty string");
         Py_DECREF(result);
         return NULL;
@@ -682,6 +855,170 @@ Pattern_pow (PyObject *self, PyObject *other, PyObject *modulo)
 ret:
     Py_DECREF(type);
     return result;
+}
+
+static PyObject *
+Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
+{
+    PyObject *result = NULL;
+    PyObject *rules = NULL;
+    PyObject *positions = NULL;
+    int totalsize = 2; /* Include initial call and jump */
+    int n = 0; /* Number of rules */
+    Py_ssize_t i;
+    Py_ssize_t nargs;
+    Instruction *p;
+    PyObject *init_rule = NULL;
+    PyObject *initpos;
+    Py_ssize_t pos;
+    PyObject *k;
+    PyObject *v;
+
+    nargs = PySequence_Length(args);
+    rules = PyList_New(0);
+    positions = PyDict_New();
+
+    if (nargs == -1 || rules == NULL || positions == NULL)
+        goto err;
+
+    fprintf(stderr, "Starting grammar processing: nargs = %d\n", nargs); fflush(stderr);
+    /* Accumulate the list of rules and a mapping id->position */
+    for (i = 0; i < nargs; ++i) {
+        PyObject *patt = PySequence_GetItem(args, i);
+        Py_ssize_t l;
+        PyObject *py_ts;
+        PyObject *py_i;
+        if (!PyObject_IsInstance(patt, cls)) { /* TODO: Pattern, rather than cls? */
+            if (i == 0) { /* initial rule */
+                init_rule = patt;
+                Py_INCREF(init_rule);
+            }
+            else {
+                PyErr_SetString(PyExc_TypeError, "Grammar rule must be a pattern");
+                Py_DECREF(patt);
+                goto err;
+            }
+        }
+        l = pattsize(patt) + 1; /* Space for pattern + RET */
+        /* TODO: Error checking */
+        py_ts = PyInt_FromSsize_t(totalsize);
+        py_i = PyInt_FromSsize_t(i);
+        if (py_ts == NULL || py_i == NULL) {
+            Py_DECREF(patt);
+            Py_XDECREF(py_ts);
+            Py_XDECREF(py_i);
+            goto err;
+        }
+        PyDict_SetItem(positions, py_i, py_ts);
+        Py_DECREF(py_ts);
+        Py_DECREF(py_i);
+        PyList_Append(rules, patt);
+        totalsize += l;
+        ++n;
+        Py_DECREF(patt);
+    }
+    fprintf(stderr, "Starting dictionary args\n"); fflush(stderr);
+    pos = 0;
+    fprintf(stderr, "pos set to 0\n"); fflush(stderr);
+    while (kw && PyDict_Next(kw, &pos, &k, &v)) {
+        PyObject *patt = v;
+        Py_ssize_t l;
+        PyObject *py_ts;
+        fprintf(stderr, "Checking type\n"); fflush(stderr);
+        if (!PyObject_IsInstance(patt, cls)) { /* TODO: Pattern, rather than cls? */
+            PyErr_SetString(PyExc_TypeError, "Grammar rule must be a pattern");
+            goto err;
+        }
+        l = pattsize(patt) + 1; /* Space for pattern + RET */
+        fprintf(stderr, "Space needed is %d\n", l); fflush(stderr);
+        /* TODO: Error checking */
+        py_ts = PyInt_FromSsize_t(totalsize);
+        if (py_ts == NULL) {
+            goto err;
+        }
+        PyDict_SetItem(positions, k, py_ts);
+        Py_DECREF(py_ts);
+        PyList_Append(rules, patt);
+        totalsize += l;
+        ++n;
+    }
+
+    fprintf(stderr, "n = %d\n", n); fflush(stderr);
+    if (n == 0) {
+        PyErr_SetString(PyExc_ValueError, "Empty grammar");
+        goto err;
+    }
+
+    fprintf(stderr, "Creating pattern\n"); fflush(stderr);
+    result = new_pattern(cls, totalsize, &p);
+    if (result == NULL)
+        goto err;
+    nargs = PySequence_Length(rules);
+    if (nargs == -1)
+        goto err;
+    ++p; /* Leave space for call */
+    setinst(p++, IJmp, totalsize - 1);  /* after call, jumps to the end */
+
+    fprintf(stderr, "Adding %d rules\n", nargs); fflush(stderr);
+    for (i = 0; i < nargs; ++i) {
+        PyObject *patt = PySequence_GetItem(rules, i);
+        if (patt == NULL)
+            goto err;
+        p += addpatt((Pattern*)result, p, (Pattern*)patt);
+        setinst(p++, IRet, 0);
+    }
+    p -= totalsize;  /* back to first position */
+    totalsize = 2;  /* go through each rule's position */
+#if 0
+    fprintf(stderr, "Checking pattern\n"); fflush(stderr);
+    for (i = 0; i <= nargs; i++) {  /* check all rules */
+        PyObject *patt = PySequence_GetItem(rules, i);
+        Py_ssize_t l;
+        if (patt == NULL)
+            goto err;
+        l = pattsize(patt) + 1;
+        /* Rule is only needed for error message */
+        checkrule(patt, p, totalsize, totalsize + l, positions);
+        totalsize += l;
+    }
+#endif
+
+    fprintf(stderr, "Get initial rule\n"); fflush(stderr);
+    /* Get the initial rule */
+    if (init_rule == NULL)
+        init_rule = PyInt_FromLong(0);
+    initpos = PyDict_GetItem(positions, init_rule);
+    if (initpos == NULL) {
+        PyErr_SetString(PyExc_ValueError, "Initial rule is not defined in the grammar");
+        goto err;
+    }
+    pos = PyInt_AsSsize_t(initpos);
+    fprintf(stderr, "Initial call to %d\n", pos); fflush(stderr);
+    setinst(p, ICall, pos);  /* first instruction calls initial rule */
+
+    /* correct calls */
+    for (i = 0; i < totalsize; i += sizei(p + i)) {
+        if (p[i].i.code == IOpenCall) {
+            /* TODO - almost certainly wrong (result isn't the right arg) */
+            int pos = getposition(result, positions, p[i].i.offset);
+            p[i].i.code = (p[target(p, i + 1)].i.code == IRet) ? IJmp : ICall;
+            p[i].i.offset = pos - i;
+        }
+    }
+    optimizejumps(p);
+
+    fprintf(stderr, "Built grammar\n"); fflush(stderr);
+    Py_DECREF(init_rule);
+    Py_DECREF(rules);
+    Py_DECREF(positions);
+    return result;
+
+err:
+    Py_XDECREF(init_rule);
+    Py_XDECREF(positions);
+    Py_XDECREF(rules);
+    Py_XDECREF(result);
+    return NULL;
 }
 
 static PyObject *
@@ -818,7 +1155,7 @@ static int pushcapture (CapState *cs) {
             return 1;
         }
         default: {
-            fprintf(stderr, "Not implemented yet: %d\n", captype(cs->cap));
+            fprintf(stderr, "Not implemented yet: %d\n", captype(cs->cap)); fflush(stderr);
             return 1;
         }
     }
@@ -926,6 +1263,10 @@ static PyMethodDef Pattern_methods[] = {
     },
     {"CapC", (PyCFunction)Pattern_CaptureConst, METH_O | METH_CLASS,
      "A constant capture"
+    },
+    {"Grammar", (PyCFunctionWithKeywords)Pattern_Grammar,
+     METH_VARARGS | METH_KEYWORDS | METH_CLASS,
+     "A grammar"
     },
     {"Dummy", (PyCFunction)Pattern_Dummy, METH_NOARGS | METH_CLASS,
      "A static value for testing"

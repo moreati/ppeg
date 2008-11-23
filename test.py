@@ -197,5 +197,11 @@ class TestCaptureRet(unittest.TestCase):
         p = Pattern.CapC(["foo", 1, None, "bar"])
         self.assertEqual(p("abcdef"), [["foo", 1, None, "bar"]])
 
+class TestGrammar(unittest.TestCase):
+    def testsimple(self):
+        p = Pattern.Any(1)
+        pg = Pattern.Grammar(p)
+        self.assertEqual(pg("ab"), 1)
+
 if __name__ == '__main__':
     unittest.main()
