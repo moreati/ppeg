@@ -858,6 +858,17 @@ ret:
 }
 
 static PyObject *
+Pattern_Var (PyObject *cls, PyObject *name)
+{
+  Instruction *p;
+  PyObject *result = new_pattern(cls, 1, &p);
+  if (result == NULL)
+      return NULL;
+  setinst(p, IOpenCall, value2fenv(result, name));
+  return result;
+}
+
+static PyObject *
 Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
 {
     PyObject *result = NULL;
@@ -969,19 +980,19 @@ Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
     }
     p -= totalsize;  /* back to first position */
     totalsize = 2;  /* go through each rule's position */
-#if 0
     fprintf(stderr, "Checking pattern\n"); fflush(stderr);
-    for (i = 0; i <= nargs; i++) {  /* check all rules */
+    for (i = 0; i < nargs; i++) {  /* check all rules */
         PyObject *patt = PySequence_GetItem(rules, i);
         Py_ssize_t l;
         if (patt == NULL)
             goto err;
         l = pattsize(patt) + 1;
         /* Rule is only needed for error message */
+#if 0
         checkrule(patt, p, totalsize, totalsize + l, positions);
+#endif
         totalsize += l;
     }
-#endif
 
     fprintf(stderr, "Get initial rule\n"); fflush(stderr);
     /* Get the initial rule */
@@ -998,8 +1009,10 @@ Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
 
     /* correct calls */
     for (i = 0; i < totalsize; i += sizei(p + i)) {
+        fprintf(stderr, "Checking for opencall at %d\n", i); fflush(stderr);
         if (p[i].i.code == IOpenCall) {
-            /* TODO - almost certainly wrong (result isn't the right arg) */
+            fprintf(stderr, "Got opencall at %d\n", i); fflush(stderr);
+            /* TODO - definitely wrong (result isn't the right arg) */
             int pos = getposition(result, positions, p[i].i.offset);
             p[i].i.code = (p[target(p, i + 1)].i.code == IRet) ? IJmp : ICall;
             p[i].i.offset = pos - i;
@@ -1264,7 +1277,10 @@ static PyMethodDef Pattern_methods[] = {
     {"CapC", (PyCFunction)Pattern_CaptureConst, METH_O | METH_CLASS,
      "A constant capture"
     },
-    {"Grammar", (PyCFunctionWithKeywords)Pattern_Grammar,
+    {"Var", (PyCFunction)Pattern_Var, METH_O | METH_CLASS,
+     "A grammar variable reference"
+    },
+    {"Grammar", (PyCFunction)Pattern_Grammar,
      METH_VARARGS | METH_KEYWORDS | METH_CLASS,
      "A grammar"
     },
