@@ -90,7 +90,7 @@ value2fenv (PyObject *obj, PyObject *val)
         return -1;
     Py_INCREF(val);
     PyList_SET_ITEM(patt->env, 0, val);
-    return 1;
+    return 0;
 }
 
 static int
@@ -892,7 +892,6 @@ Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
     if (nargs == -1 || rules == NULL || positions == NULL)
         goto err;
 
-    fprintf(stderr, "Starting grammar processing: nargs = %d\n", nargs); fflush(stderr);
     /* Accumulate the list of rules and a mapping id->position */
     for (i = 0; i < nargs; ++i) {
         PyObject *patt = PySequence_GetItem(args, i);
@@ -928,20 +927,16 @@ Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
         ++n;
         Py_DECREF(patt);
     }
-    fprintf(stderr, "Starting dictionary args\n"); fflush(stderr);
     pos = 0;
-    fprintf(stderr, "pos set to 0\n"); fflush(stderr);
     while (kw && PyDict_Next(kw, &pos, &k, &v)) {
         PyObject *patt = v;
         Py_ssize_t l;
         PyObject *py_ts;
-        fprintf(stderr, "Checking type\n"); fflush(stderr);
         if (!PyObject_IsInstance(patt, cls)) { /* TODO: Pattern, rather than cls? */
             PyErr_SetString(PyExc_TypeError, "Grammar rule must be a pattern");
             goto err;
         }
         l = pattsize(patt) + 1; /* Space for pattern + RET */
-        fprintf(stderr, "Space needed is %d\n", l); fflush(stderr);
         /* TODO: Error checking */
         py_ts = PyInt_FromSsize_t(totalsize);
         if (py_ts == NULL) {
@@ -954,13 +949,11 @@ Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
         ++n;
     }
 
-    fprintf(stderr, "n = %d\n", n); fflush(stderr);
     if (n == 0) {
         PyErr_SetString(PyExc_ValueError, "Empty grammar");
         goto err;
     }
 
-    fprintf(stderr, "Creating pattern\n"); fflush(stderr);
     result = new_pattern(cls, totalsize, &p);
     if (result == NULL)
         goto err;
@@ -970,7 +963,6 @@ Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
     ++p; /* Leave space for call */
     setinst(p++, IJmp, totalsize - 1);  /* after call, jumps to the end */
 
-    fprintf(stderr, "Adding %d rules\n", nargs); fflush(stderr);
     for (i = 0; i < nargs; ++i) {
         PyObject *patt = PySequence_GetItem(rules, i);
         if (patt == NULL)
@@ -980,7 +972,6 @@ Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
     }
     p -= totalsize;  /* back to first position */
     totalsize = 2;  /* go through each rule's position */
-    fprintf(stderr, "Checking pattern\n"); fflush(stderr);
     for (i = 0; i < nargs; i++) {  /* check all rules */
         PyObject *patt = PySequence_GetItem(rules, i);
         Py_ssize_t l;
@@ -994,7 +985,6 @@ Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
         totalsize += l;
     }
 
-    fprintf(stderr, "Get initial rule\n"); fflush(stderr);
     /* Get the initial rule */
     if (init_rule == NULL)
         init_rule = PyInt_FromLong(0);
@@ -1004,23 +994,21 @@ Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
         goto err;
     }
     pos = PyInt_AsSsize_t(initpos);
-    fprintf(stderr, "Initial call to %d\n", pos); fflush(stderr);
     setinst(p, ICall, pos);  /* first instruction calls initial rule */
 
     /* correct calls */
     for (i = 0; i < totalsize; i += sizei(p + i)) {
-        fprintf(stderr, "Checking for opencall at %d\n", i); fflush(stderr);
         if (p[i].i.code == IOpenCall) {
-            fprintf(stderr, "Got opencall at %d\n", i); fflush(stderr);
             /* TODO - definitely wrong (result isn't the right arg) */
             int pos = getposition(result, positions, p[i].i.offset);
+            if (pos == -1 && PyErr_Occurred())
+                goto err;
             p[i].i.code = (p[target(p, i + 1)].i.code == IRet) ? IJmp : ICall;
             p[i].i.offset = pos - i;
         }
     }
     optimizejumps(p);
 
-    fprintf(stderr, "Built grammar\n"); fflush(stderr);
     Py_DECREF(init_rule);
     Py_DECREF(rules);
     Py_DECREF(positions);
@@ -1168,7 +1156,6 @@ static int pushcapture (CapState *cs) {
             return 1;
         }
         default: {
-            fprintf(stderr, "Not implemented yet: %d\n", captype(cs->cap)); fflush(stderr);
             return 1;
         }
     }
