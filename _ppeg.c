@@ -536,8 +536,10 @@ jointables (Pattern *p1, Pattern *p2)
 #define pattsize(p) ((((Pattern*)(p))->prog_len) - 1)
 
 Py_ssize_t
-addpatt (Pattern *p1, Instruction *p, Pattern *p2)
+addpatt (PyObject *self, Instruction *p, PyObject *other)
 {
+    Pattern *p1 = (Pattern *)self;
+    Pattern *p2 = (Pattern *)other;
     Py_ssize_t sz = pattsize(p2);
     Py_ssize_t corr = jointables(p1, p2);
     copypatt(p, p2->prog, sz + 1);
@@ -585,8 +587,8 @@ Pattern_concat (PyObject *self, PyObject *other)
         PyObject *result = new_pattern(type, l1 + l2, &np);
         Py_DECREF(type);
         if (result) {
-            Instruction *p = np + addpatt((Pattern*)result, np, (Pattern*)self);
-            addpatt((Pattern*)result, p, (Pattern*)other);
+            Instruction *p = np + addpatt(result, np, self);
+            addpatt(result, p, other);
             optimizecaptures(np);
         }
         return result;
@@ -624,7 +626,7 @@ Pattern_and (PyObject *self)
         result = new_pattern(type, 1 + l1 + 2, &p);
         if (result) {
             setinst(p++, IChoice, 1 + l1 + 1);
-            p += addpatt((Pattern*)result, p, (Pattern*)self);
+            p += addpatt(result, p, self);
             setinst(p++, IBackCommit, 2);
             setinst(p, IFail, 0);
         }
@@ -655,10 +657,10 @@ Pattern_diff (PyObject *self, PyObject *other)
     else if (isheadfail(p2)) {
         result = new_pattern(type, l2 + 1 + l1, &p);
         if (result) {
-            p += addpatt((Pattern*)result, p, (Pattern*)other);
+            p += addpatt(result, p, other);
             check2test(p - l2, l2 + 1);
             setinst(p++, IFail, 0);
-            addpatt((Pattern*)result, p, (Pattern*)self);
+            addpatt(result, p, self);
         }
     }
     else {  /* !e2 . e1 */
@@ -668,9 +670,9 @@ Pattern_diff (PyObject *self, PyObject *other)
         if (result) {
             pi = p;
             setinst(p++, IChoice, 1 + l2 + 1);
-            p += addpatt((Pattern*)result, p, (Pattern*)other);
+            p += addpatt(result, p, other);
             setinst(p++, IFailTwice, 0);
-            addpatt((Pattern*)result, p, (Pattern*)self);
+            addpatt(result, p, self);
             optimizechoice(pi);
         }
     }
@@ -716,7 +718,7 @@ repeatcharset (PyObject *cls, Charset cs, int l1, int n, PyObject *patt)
     if (result == NULL)
         return NULL;
     for (i = 0; i < n; i++) {
-        p += addpatt((Pattern*)result, p, (Pattern*)patt);
+        p += addpatt(result, p, patt);
     }
     setinst(p, ISpan, 0);
     loopset(k, p[1].buff[k] = cs[k]);
@@ -736,9 +738,9 @@ repeatheadfail (PyObject *cls, int l1, int n, PyObject *patt, Instruction **op)
         return NULL;
     if (op) *op = p;
     for (i = 0; i < n; i++) {
-        p += addpatt((Pattern *)result, p, (Pattern *)patt);
+        p += addpatt(result, p, patt);
     }
-    p += addpatt((Pattern *)result, p, (Pattern *)patt);
+    p += addpatt(result, p, patt);
     check2test(p - l1, l1 + 1);
     setinst(p, IJmp, -l1);
     return result;
@@ -769,10 +771,10 @@ repeats (PyObject *cls, Instruction *p1, int l1, int n, PyObject *patt, Instruct
 
     if (op) *op = p;
     for (i = 0; i < n; i++) {
-        p += addpatt((Pattern*)result, p, (Pattern*)patt);
+        p += addpatt(result, p, patt);
     }
     setinst(p++, IChoice, 1 + l1 + 1);
-    p += addpatt((Pattern*)result, p, (Pattern*)patt);
+    p += addpatt(result, p, patt);
     setinst(p, IPartialCommit, -l1);
     return result;
 }
@@ -786,7 +788,7 @@ optionalheadfail (PyObject *cls, int l1, int n, PyObject *patt)
     if (result == NULL)
         return NULL;
     for (i = 0; i < n; i++) {
-        p += addpatt((Pattern *)result, p, (Pattern *)patt);
+        p += addpatt(result, p, patt);
         check2test(p - l1, (n - i)*l1);
     }
     return result;
@@ -805,7 +807,7 @@ optionals (PyObject *cls, int l1, int n, PyObject *patt)
     op = p;
     setinst(p++, IChoice, 1 + n*(l1 + 1));
     for (i = 0; i < n; i++) {
-        p += addpatt((Pattern*)result, p, (Pattern*)patt);
+        p += addpatt(result, p, patt);
         setinst(p++, IPartialCommit, 1);
     }
     setinst(p - 1, ICommit, 1);  /* correct last commit */
@@ -853,6 +855,137 @@ Pattern_pow (PyObject *self, PyObject *other, PyObject *modulo)
             result = optionals(type, l1, -n, self);
     }
 ret:
+    Py_DECREF(type);
+    return result;
+}
+
+static PyObject *
+auxnew (PyObject *self, Instruction **op, int *size, int extra, Instruction **pptr)
+{
+    PyObject *type;
+    PyObject *result;
+
+    type = PyObject_Type(self);
+    if (type == NULL)
+        return NULL;
+    result = new_pattern(type, *size + extra, op);
+    Py_DECREF(type);
+    if (result == NULL)
+        return NULL;
+    jointables((Pattern*)result, (Pattern*)self);
+    *size += extra;
+    *pptr = *op + *size - extra;
+    return result;
+}
+
+static PyObject *
+basicUnion (PyObject *cls, Instruction *p1, int l1, int l2, int *size, CharsetTag *st2, Instruction **pptr, PyObject *self, PyObject *other)
+{
+    PyObject *result;
+    Instruction *op;
+    CharsetTag st1;
+    tocharset(p1, &st1);
+    if (st1.tag == ISCHARSET && st2->tag == ISCHARSET) {
+        Instruction *p;
+        result = auxnew(self, &op, size, CHARSETINSTSIZE, &p);
+        setinst(p, ISet, 0);
+        loopset(i, p[1].buff[i] = st1.cs[i] | st2->cs[i]);
+    }
+    else if (exclusive(&st1, st2) || isheadfail(p1)) {
+        Instruction *p;
+        result = auxnew(self, &op, size, l1 + 1 + l2, &p);
+        if (result == NULL)
+            return result;
+        copypatt(p, p1, l1);
+        check2test(p, l1 + 1);
+        p += l1;
+        setinst(p++, IJmp, l2 + 1);
+        addpatt(result, p, other);
+    }
+    else {
+        /* choice L1; e1; commit L2; L1: e2; L2: ... */
+        Instruction *p;
+        result = auxnew(self, &op, size, 1 + l1 + 1 + l2, &p);
+        if (result == NULL)
+            return NULL;
+        setinst(p++, IChoice, 1 + l1 + 1);
+        copypatt(p, p1, l1); p += l1;
+        setinst(p++, ICommit, 1 + l2);
+        addpatt(result, p, other);
+        optimizechoice(p - (1 + l1 + 1));
+    }
+    *pptr = op;
+    return result;
+}
+
+static PyObject *
+separateparts (PyObject *cls, Instruction *p1, int l1, int l2, int *size, CharsetTag *st2, Instruction **pptr, PyObject *self, PyObject *other)
+{
+    Instruction *p;
+    PyObject *result;
+    int sp = firstpart(p1, l1);
+    if (sp == 0)
+        return basicUnion(cls, p1, l1, l2, size, st2, pptr, self, other);
+
+    if ((p1 + sp - 1)->i.code == ICommit || !interfere(p1, sp, st2)) {
+        int init = *size;
+        int end = init + sp;
+        *size = end;
+        result = separateparts(cls, p1 + sp, l1 - sp, l2, size, st2, &p, self, other);
+        if (result == NULL)
+            return NULL;
+        copypatt(p + init, p1, sp);
+        (p + end - 1)->i.offset = *size - (end - 1);
+    }
+    else {
+        int init = *size;
+        int end = init + sp + 1; /* Needs 1 extra instruction (choice) */
+        int sizefirst = sizei(p1); /* Size of p1's first instruction (the test) */
+        *size = end;
+        result = separateparts(cls, p1 + sp, l1 - sp, l2, size, st2, &p, self, other);
+        if (result == NULL)
+            return NULL;
+        copypatt(p + init, p1, sizefirst); /* Copy the test */
+        (p + init)->i.offset++; /* Correct jump (because of new instruction) */
+        init += sizefirst;
+        setinstaux(p + init, IChoice, sp - sizefirst + 1, 1);
+        init++;
+        copypatt(p + init, p1 + sizefirst + 1, sp - sizefirst - 1);
+        init += sp - sizefirst - 1;
+        setinst(p + init, ICommit, *size - (end - 1));
+    }
+    *pptr = p;
+    return result;
+}
+
+static PyObject *
+Pattern_or (PyObject *self, PyObject *other)
+{
+    Instruction *p1 = ((Pattern *)(self))->prog;
+    Instruction *p2 = ((Pattern *)(other))->prog;
+    Py_ssize_t l1 = pattsize(self);
+    Py_ssize_t l2 = pattsize(other);
+    PyObject *type;
+    PyObject *result;
+    int size = 0;
+    CharsetTag st2;
+    Instruction *p;
+
+    if (isfail(p1)) {
+        Py_INCREF(other);
+        return other; /* fail / a == a */
+    }
+
+    if (isfail(p2) || issucc(p1)) {
+        Py_INCREF(self);
+        return self; /* a / fail == a; true / a == true */
+    }
+
+    tocharset(p2, &st2);
+    type = PyObject_Type(self);
+    if (type == NULL)
+        return NULL;
+    result = separateparts(type, p1, l1, l2, &size, &st2, &p, self, other);
     Py_DECREF(type);
     return result;
 }
@@ -967,7 +1100,7 @@ Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
         PyObject *patt = PySequence_GetItem(rules, i);
         if (patt == NULL)
             goto err;
-        p += addpatt((Pattern*)result, p, (Pattern*)patt);
+        p += addpatt(result, p, patt);
         setinst(p++, IRet, 0);
     }
     p -= totalsize;  /* back to first position */
@@ -1043,7 +1176,7 @@ capture_aux (PyObject *cls, PyObject *pat, int kind, PyObject *label)
             return NULL;
         result = new_pattern(cls, l1 + 1, &p);
         if (result) {
-            p += addpatt((Pattern*)result, p, (Pattern*)pat);
+            p += addpatt(result, p, pat);
             setinstcap(p, IFullCapture, labelid, kind, n);
         }
     }
@@ -1057,7 +1190,7 @@ capture_aux (PyObject *cls, PyObject *pat, int kind, PyObject *label)
         if (result) {
             p = op;
             setinstcap(p++, IOpenCapture, labelid, kind, 0);
-            p += addpatt((Pattern*)result, p, (Pattern*)pat);
+            p += addpatt(result, p, pat);
             setinstcap(p, ICloseCapture, 0, Cclose, 0);
             optimizecaptures(op);
         }
@@ -1294,7 +1427,7 @@ static PyNumberMethods Pattern_as_number = {
     0, /* binaryfunc nb_rshift */
     0, /* binaryfunc nb_and */
     0, /* binaryfunc nb_xor */
-    0, /* binaryfunc nb_or */
+    (binaryfunc)Pattern_or, /* binaryfunc nb_or */
     0, /* coercion nb_coerce */
     0, /* unaryfunc nb_int */
     0, /* unaryfunc nb_long */

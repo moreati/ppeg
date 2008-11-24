@@ -203,5 +203,12 @@ class TestGrammar(unittest.TestCase):
         pg = Pattern.Grammar(p)
         self.assertEqual(pg("ab"), 1)
 
+class TestDummyPattern(unittest.TestCase):
+    def testbuilddummy(self):
+        P = Pattern
+        patt = P.Grammar(P.Match("Omega") | P.Any(1) + P.Var(0))
+        d = P.Dummy()
+        self.assertEqual(patt.dump(), d.dump())
+
 if __name__ == '__main__':
     unittest.main()
