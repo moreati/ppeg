@@ -1261,6 +1261,38 @@ typedef struct CapState {
   int valuecached;  /* value stored in cache slot */
 } CapState;
 
+int pushsubject(CapState *cs, Capture *c) {
+    PyObject *str = PyString_FromStringAndSize(c->s, c->siz - 1);
+    int ret = 0;
+    if (str == NULL)
+        return -1;
+    if (PyList_Append(cs->values, str) == -1)
+        ret = -1;
+    Py_DECREF(str);
+    return ret;
+}
+
+static int pushcapture (CapState *cs);
+
+static int pushallvalues (CapState *cs, int addextra) {
+    Capture *co = cs->cap;
+    int n = 0;
+    if (isfullcap(cs->cap++)) {
+        pushsubject(cs, co); /* Push whole match */
+        return 1;
+    }
+    while (!isclosecap(cs->cap))
+        n += pushcapture(cs);
+    if (addextra || n == 0) {
+        PyObject *str = PyString_FromStringAndSize(co->s, cs->cap->s - co->s);
+        PyList_Append(cs->values, str);
+        Py_DECREF(str);
+        ++n;
+    }
+    cs->cap++;
+    return n;
+}
+
 static int pushcapture (CapState *cs) {
     switch (captype(cs->cap)) {
         case Cposition: {
@@ -1287,6 +1319,18 @@ static int pushcapture (CapState *cs) {
                 return 0;
             PyList_Append(cs->values, val);
             return 1;
+        }
+        case Csimple: {
+            int k = pushallvalues(cs, 1);
+            if (k > 1) {
+                /* Whole match is first result, so move the last element back
+                 * to the start of the group we've just pushed
+                 */
+                PyObject *top = PySequence_GetItem(cs->values, -1);
+                PyList_Insert(cs->values, -k, top);
+                PySequence_DelItem(cs->values, -1);
+                Py_DECREF(top);
+            }
         }
         default: {
             return 1;

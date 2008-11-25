@@ -196,6 +196,10 @@ class TestCaptureRet(unittest.TestCase):
     def testconst(self):
         p = Pattern.CapC(["foo", 1, None, "bar"])
         self.assertEqual(p("abcdef"), [["foo", 1, None, "bar"]])
+    def testsimple(self):
+        p = Pattern.Any(1) + Pattern.Cap(Pattern.Any(2))
+        self.assertEqual(p("abc"), ["bc"])
+        self.assertEqual(Pattern.Cap(p)("abc"), ["abc", "bc"])
 
 class TestGrammar(unittest.TestCase):
     def testsimple(self):
