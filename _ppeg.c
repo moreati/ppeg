@@ -1293,6 +1293,103 @@ static int pushallvalues (CapState *cs, int addextra) {
     return n;
 }
 
+static int addonestring (PyObject *lst, CapState *cs, const char *what);
+
+static int stringcap(PyObject *lst, CapState *cs) {
+    StrAux cps[MAXSTRCAPS];
+    int n;
+    Py_ssize_t len, i;
+    const char *c;
+    PyObject *str;
+    /* TODO: Cache management needs consideration!
+    updatecache(cs, cs->cap->idx);
+    c = lua_tolstring(cs->L, subscache(cs), &len);
+    n = getstrcaps(cs, cps, 0) - 1;
+    */
+    for (i = 0; i < len; i++) {
+        if (c[i] != '%' || c[++i] < '0' || c[i] > '9') {
+            /* Add 1 char, c[i] */
+            str = PyString_FromStringAndSize(&c[i], 1);
+            PyList_Append(lst, str);
+            Py_DECREF(str);
+        }
+        else {
+            int l = c[i] - '0';
+            if (l > n) {
+                PyErr_SetString(PyExc_ValueError, "Invalid capture index");
+                return -1;
+            }
+            else if (cps[l].isstring) {
+                str = PyString_FromStringAndSize(cps[l].u.s.s, cps[l].u.s.e - cps[l].u.s.s);
+                PyList_Append(lst, str);
+                Py_DECREF(str);
+            }
+            else {
+                Capture *curr = cs->cap;
+                cs->cap = cps[l].u.cp;
+                if (addonestring(lst, cs, "capture") == 0) {
+                    PyErr_SetString(PyExc_ValueError, "No values in capture index");
+                    return -1;
+                }
+                cs->cap = curr;
+            }
+        }
+    }
+    return 0;
+}
+
+static void substcap(PyObject *lst, CapState *cs) {
+    const char *curr = cs->cap->s;
+    PyObject *str;
+    if (isfullcap(cs->cap)) {
+        /* Keep original text */
+        str = PyString_FromStringAndSize(curr, cs->cap->siz - 1);
+        PyList_Append(lst, str);
+        Py_DECREF(str);
+    }
+    else {
+        cs->cap++;
+        while (!isclosecap(cs->cap)) {
+            const char *next = cs->cap->s;
+            str = PyString_FromStringAndSize(curr, next - curr);
+            PyList_Append(lst, str);
+            Py_DECREF(str);
+            if (addonestring(lst, cs, "replacement") == 0) /* No capture value? */
+                curr = next;
+            else
+                curr = closeaddr(cs->cap - 1); /* Continue after match */
+        }
+        str = PyString_FromStringAndSize(curr, cs->cap->s - curr); /* Add last piece of text */
+        PyList_Append(lst, str);
+        Py_DECREF(str);
+    }
+    cs->cap++; /* Go to next capture */
+}
+
+static int addonestring (PyObject *lst, CapState *cs, const char *what) {
+    switch (captype(cs->cap)) {
+        case Cstring:
+            /* Add capture directly to buffer */
+            if (stringcap(lst, cs) == -1)
+                return 0;
+            return 1;
+        case Csubst:
+            substcap(lst, cs); /* Add capture directly yo buffer */
+            return 1;
+        default: {
+            int n = pushcapture(cs);
+            Py_ssize_t len = PyList_Size(cs->values);
+            PyObject *val;
+            /* Only the first result */
+            val = PyList_GetItem(cs->values, len - n + 1);
+            PyList_Append(lst, val);
+            /* Drop the results */
+            PyList_SetSlice(cs->values, len - n, len, NULL);
+            return n;
+        }
+    }
+}
+
 static int pushcapture (CapState *cs) {
     switch (captype(cs->cap)) {
         case Cposition: {
@@ -1330,6 +1427,38 @@ static int pushcapture (CapState *cs) {
                 PyList_Insert(cs->values, -k, top);
                 PySequence_DelItem(cs->values, -1);
                 Py_DECREF(top);
+            }
+        }
+        case Cstring: {
+            PyObject *lst = PyList_New(0);
+            PyObject *str = PyString_FromString("");
+            PyObject *result;
+            stringcap(lst, cs);
+            result = PyObject_CallMethod(str, "join", "(O)", lst);
+            PyList_Append(cs->values, result);
+            Py_DECREF(result);
+            Py_DECREF(str);
+            Py_DECREF(lst);
+            return 1;
+        }
+        case Csubst: {
+            PyObject *lst = PyList_New(0);
+            PyObject *str = PyString_FromString("");
+            PyObject *result;
+            substcap(lst, cs);
+            result = PyObject_CallMethod(str, "join", "(O)", lst);
+            PyList_Append(cs->values, result);
+            Py_DECREF(result);
+            Py_DECREF(str);
+            Py_DECREF(lst);
+            return 1;
+        }
+        case Cgroup: {
+            if (cs->cap->idx == 0) /* Anonymous group? */
+                return pushallvalues(cs, 0);
+            else { /* Named group: add no values */
+                cs->cap = nextcap(cs->cap);
+                return 0;
             }
         }
         default: {
