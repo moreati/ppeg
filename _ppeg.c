@@ -5,7 +5,8 @@
 #include "lpeg.c"
 #undef printf
 
-#undef DEBUG
+#define DEBUG 1
+//#undef DEBUG
 #ifdef DEBUG
 #define D(s) (fprintf(stderr, s "\n"), fflush(stderr))
 #define D1(s,a) (fprintf(stderr, s "\n",a), fflush(stderr))
@@ -97,21 +98,35 @@ static int
 value2fenv (PyObject *obj, PyObject *val)
 {
     Pattern *patt = (Pattern *)obj;
+    D("Starting value2fenv");
+    D1("Env is %p", patt->env);
+    D1("Env has %d entries", patt->env ? PyList_Size(patt->env) : -1);
     Py_XDECREF(patt->env);
+    D("Freed env");
     patt->env = PyList_New(1);
     if (patt->env == NULL)
         return -1;
+    D("Have new env");
+    /* Ugly hack to make sure we don't return 0! */
+    Py_INCREF(val);
     Py_INCREF(val);
     PyList_SET_ITEM(patt->env, 0, val);
-    return 0;
+    PyList_SET_ITEM(patt->env, 1, val);
+    D("Put value in");
+    return 1;
 }
 
 static int
 getlabel(PyObject *obj, PyObject *val)
 {
+    int r;
+    D("Getlabel");
     if (val == NULL)
         return 0;
-    return value2fenv(obj, val);
+    D("Value is not NULL");
+    r = value2fenv(obj, val);
+    D1("Got %d", r);
+    return r;
 }
 
 /*
@@ -1184,7 +1199,7 @@ capture_aux (PyObject *cls, PyObject *pat, int kind, PyObject *label)
     if (lc == l1) {  /* got whole pattern? */
         /* may use a IFullCapture instruction at its end */
         Instruction *p;
-        int labelid = getlabel(result, label);
+        int labelid = getlabel(pat, label);
         if (labelid == -1)
             return NULL;
         result = new_pattern(cls, l1 + 1, &p);
@@ -1196,7 +1211,7 @@ capture_aux (PyObject *cls, PyObject *pat, int kind, PyObject *label)
     else {  /* must use open-close pair */
         Instruction *op;
         Instruction *p;
-        int labelid = getlabel(result, label);
+        int labelid = getlabel(pat, label);
         if (labelid == -1)
             return NULL;
         result = new_pattern(cls, 1 + l1 + 1, &op);
@@ -1220,6 +1235,25 @@ static PyObject *Pattern_CaptureTab(PyObject *cls, PyObject *pat) {
 }
 static PyObject *Pattern_CaptureSub(PyObject *cls, PyObject *pat) {
     return capture_aux(cls, pat, Csubst, 0);
+}
+
+static PyObject *Pattern_divide(PyObject *self, PyObject *other) {
+    PyObject *cls;
+    PyObject *result = NULL;
+    D("Starting divide");
+
+    cls = PyObject_Type(self);
+    if (cls == NULL)
+        return NULL;
+    D("Got type");
+
+    if (PyString_Check(other))
+        result = capture_aux(cls, self, Cstring, other);
+    else
+        PyErr_SetString(PyExc_ValueError, "Pattern replacement must be string, function, or dict");
+
+    Py_DECREF(cls);
+    return result;
 }
 
 static PyObject *Pattern_CapturePos(PyObject *cls) {
@@ -1306,19 +1340,44 @@ static int pushallvalues (CapState *cs, int addextra) {
     return n;
 }
 
+static int getstrcaps (CapState *cs, StrAux *cps, int n) {
+  int k = n++;
+  cps[k].isstring = 1;
+  cps[k].u.s.s = cs->cap->s;
+  if (!isfullcap(cs->cap++)) {
+    while (!isclosecap(cs->cap)) {
+      if (n >= MAXSTRCAPS)  /* too many captures? */
+        cs->cap = nextcap(cs->cap);  /* skip it */
+      else if (captype(cs->cap) == Csimple)
+        n = getstrcaps(cs, cps, n);
+      else {
+        cps[n].isstring = 0;
+        cps[n].u.cp = cs->cap;
+        cs->cap = nextcap(cs->cap);
+        n++;
+      }
+    }
+    cs->cap++;  /* skip close */
+  }
+  cps[k].u.s.e = closeaddr(cs->cap - 1);
+  return n;
+}
+
 static int addonestring (PyObject *lst, CapState *cs, const char *what);
 
 static int stringcap(PyObject *lst, CapState *cs) {
     StrAux cps[MAXSTRCAPS];
     int n;
     Py_ssize_t len, i;
-    const char *c;
+    char *c;
     PyObject *str;
     /* TODO: Cache management needs consideration!
     updatecache(cs, cs->cap->idx);
     c = lua_tolstring(cs->L, subscache(cs), &len);
-    n = getstrcaps(cs, cps, 0) - 1;
     */
+    str = PyList_GetItem(cs->env, cs->cap->idx);
+    PyString_AsStringAndSize(str, &c, &len);
+    n = getstrcaps(cs, cps, 0) - 1;
     for (i = 0; i < len; i++) {
         if (c[i] != '%' || c[++i] < '0' || c[i] > '9') {
             /* Add 1 char, c[i] */
@@ -1545,6 +1604,7 @@ Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
     Py_ssize_t len;
     Capture *cc = malloc(IMAXCAPTURES * sizeof(Capture));
     const char *e;
+    PyObject *result;
 
 #if 0
     if (!PyArg_ParseTuple(args, "s#", &str, &len))
@@ -1558,7 +1618,9 @@ Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
     e = match("", str, str + len, self->prog, cc, 0);
     if (e == 0)
         Py_RETURN_NONE;
-    return getcaptures((PyObject*)self, &cc, str, e, args);
+    result = getcaptures((PyObject*)self, &cc, str, e, args);
+    free(cc);
+    return result;
 }
 
 static PyMethodDef Pattern_methods[] = {
@@ -1618,7 +1680,7 @@ static PyNumberMethods Pattern_as_number = {
     (binaryfunc)Pattern_concat, /* binaryfunc nb_add */
     (binaryfunc)Pattern_diff,   /* binaryfunc nb_subtract */
     0, /* binaryfunc nb_multiply */
-    0, /* binaryfunc nb_divide */
+    (binaryfunc)Pattern_divide, /* binaryfunc nb_divide */
     0, /* binaryfunc nb_remainder */
     0, /* binaryfunc nb_divmod */
     (ternaryfunc)Pattern_pow, /* ternaryfunc nb_power */
