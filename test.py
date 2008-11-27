@@ -200,6 +200,10 @@ class TestCaptureRet(unittest.TestCase):
         p = Pattern.Any(1) + Pattern.Cap(Pattern.Any(2))
         self.assertEqual(p("abc"), ["bc"])
         self.assertEqual(Pattern.Cap(p)("abc"), ["abc", "bc"])
+    def testsubst(self):
+        p = Pattern.Any(1) + Pattern.CapS(Pattern.CapP() + Pattern.Any(2))
+        self.assertEqual(p("abc"), ["1bc"])
+        self.assertEqual(Pattern.Cap(p)("abc"), ["abc", "1bc"])
 
 class TestGrammar(unittest.TestCase):
     def testsimple(self):
