@@ -5,6 +5,19 @@
 #include "lpeg.c"
 #undef printf
 
+#undef DEBUG
+#ifdef DEBUG
+#define D(s) (fprintf(stderr, s "\n"), fflush(stderr))
+#define D1(s,a) (fprintf(stderr, s "\n",a), fflush(stderr))
+#define D2(s,a,b) (fprintf(stderr, s "\n",a,b), fflush(stderr))
+#define D3(s,a,b,c) (fprintf(stderr, s "\n",a,b,c), fflush(stderr))
+#else
+#define D(s)
+#define D1(s,a)
+#define D2(s,a,b)
+#define D3(s,a,b,c)
+#endif
+
 /* }====================================================== */
 
 static const Instruction Dummy[] =
@@ -1342,24 +1355,29 @@ static void substcap(PyObject *lst, CapState *cs) {
     const char *curr = cs->cap->s;
     PyObject *str;
     if (isfullcap(cs->cap)) {
+        D("Substcap: isfullcap");
         /* Keep original text */
         str = PyString_FromStringAndSize(curr, cs->cap->siz - 1);
         PyList_Append(lst, str);
         Py_DECREF(str);
     }
     else {
+        D("Substcap: !isfullcap");
         cs->cap++;
         while (!isclosecap(cs->cap)) {
             const char *next = cs->cap->s;
             str = PyString_FromStringAndSize(curr, next - curr);
+            D1("(1) Got string '%s'", PyString_AsString(str));
             PyList_Append(lst, str);
             Py_DECREF(str);
+            D("Doing addonestring");
             if (addonestring(lst, cs, "replacement") == 0) /* No capture value? */
                 curr = next;
             else
                 curr = closeaddr(cs->cap - 1); /* Continue after match */
         }
         str = PyString_FromStringAndSize(curr, cs->cap->s - curr); /* Add last piece of text */
+        D1("(2) Got string '%s'", PyString_AsString(str));
         PyList_Append(lst, str);
         Py_DECREF(str);
     }
@@ -1367,6 +1385,7 @@ static void substcap(PyObject *lst, CapState *cs) {
 }
 
 static int addonestring (PyObject *lst, CapState *cs, const char *what) {
+    D("Addonestring");
     switch (captype(cs->cap)) {
         case Cstring:
             /* Add capture directly to buffer */
@@ -1374,16 +1393,19 @@ static int addonestring (PyObject *lst, CapState *cs, const char *what) {
                 return 0;
             return 1;
         case Csubst:
-            substcap(lst, cs); /* Add capture directly yo buffer */
+            substcap(lst, cs); /* Add capture directly to buffer */
             return 1;
         default: {
             int n = pushcapture(cs);
             Py_ssize_t len = PyList_Size(cs->values);
             PyObject *val;
+            D2("Default: n=%d len=%d", n, len);
             /* Only the first result */
-            val = PyList_GetItem(cs->values, len - n + 1);
+            val = PyList_GetItem(cs->values, len - n);
+            D1("Got value %p", val);
             PyList_Append(lst, val);
             /* Drop the results */
+            D("Dropping results");
             PyList_SetSlice(cs->values, len - n, len, NULL);
             return n;
         }
@@ -1394,7 +1416,7 @@ static int pushcapture (CapState *cs) {
     switch (captype(cs->cap)) {
         case Cposition: {
             long pos = cs->cap->s - cs->s;
-            PyObject *val = PyInt_FromLong(pos);
+            PyObject *val = PyString_FromFormat("%ld", pos);
             if (val == NULL)
                 return 0;
             PyList_Append(cs->values, val);
@@ -1428,6 +1450,7 @@ static int pushcapture (CapState *cs) {
                 PySequence_DelItem(cs->values, -1);
                 Py_DECREF(top);
             }
+            return 1;
         }
         case Cstring: {
             PyObject *lst = PyList_New(0);
@@ -1445,7 +1468,9 @@ static int pushcapture (CapState *cs) {
             PyObject *lst = PyList_New(0);
             PyObject *str = PyString_FromString("");
             PyObject *result;
+            D("Starting substcap");
             substcap(lst, cs);
+            D("Ending substcap");
             result = PyObject_CallMethod(str, "join", "(O)", lst);
             PyList_Append(cs->values, result);
             Py_DECREF(result);
