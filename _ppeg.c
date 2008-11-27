@@ -1402,6 +1402,12 @@ static int addonestring (PyObject *lst, CapState *cs, const char *what) {
             D2("Default: n=%d len=%d", n, len);
             /* Only the first result */
             val = PyList_GetItem(cs->values, len - n);
+            if (!PyString_Check(val)) {
+                /* Convert to string */
+                PyObject *s = PyObject_Str(val);
+                Py_DECREF(val);
+                val = s;
+            }
             D1("Got value %p", val);
             PyList_Append(lst, val);
             /* Drop the results */
@@ -1416,7 +1422,7 @@ static int pushcapture (CapState *cs) {
     switch (captype(cs->cap)) {
         case Cposition: {
             long pos = cs->cap->s - cs->s;
-            PyObject *val = PyString_FromFormat("%ld", pos);
+            PyObject *val = PyInt_FromLong(pos);
             if (val == NULL)
                 return 0;
             PyList_Append(cs->values, val);
