@@ -49,6 +49,13 @@ typedef struct {
     PyObject *env;
 } Pattern;
 
+/* Accessors - object must be of the correct type!
+ * These are lvalues, and can be used as the target of an assignment.
+ */
+#define patprog(pat) (((Pattern *)(pat))->prog)
+#define patlen(pat) (((Pattern *)(pat))->prog_len)
+#define patenv(pat) (((Pattern *)(pat))->env)
+
 static void
 Pattern_dealloc(Pattern* self)
 {
@@ -109,11 +116,9 @@ value2fenv (PyObject *obj, PyObject *val)
     D("Have new env");
     /* Ugly hack to make sure we don't return 0! */
     Py_INCREF(val);
-    Py_INCREF(val);
     PyList_SET_ITEM(patt->env, 0, val);
-    PyList_SET_ITEM(patt->env, 1, val);
     D("Put value in");
-    return 1;
+    return 0;
 }
 
 static int
@@ -126,7 +131,47 @@ getlabel(PyObject *obj, PyObject *val)
     D("Value is not NULL");
     r = value2fenv(obj, val);
     D1("Got %d", r);
-    return r;
+    if (r == -1)
+        return -1;
+    return r + 1;
+}
+
+/* Better versions of val <-> env conversion routines */
+
+static Py_ssize_t val2env (PyObject *patt, PyObject *val) {
+    PyObject *env = patenv(patt);
+
+    if (val == NULL)
+        return 0;
+
+    if (env == NULL) {
+        env = PyList_New(0);
+        if (env == NULL)
+            return -1;
+        patenv(patt) = env;
+    }
+
+    if (PyList_Append(env, val) == -1)
+        return -1;
+
+    /* Note - this is 1 more than the index.
+     * This is deliberate, so that 0 can be used to represent NULL.
+     */
+    return PyList_Size(env);
+}
+
+static PyObject *env2val (PyObject *patt, Py_ssize_t idx) {
+    PyObject *env = patenv(patt);
+    PyObject *result;
+
+    if (idx == 0)
+        return NULL;
+
+    /* The index is 1 higher than the list position (see above) */
+    --idx;
+    result = PySequence_GetItem(env, idx);
+    /* Ambiguity here - we can return NULL from idx==0 or on error */
+    return result;
 }
 
 /*
@@ -325,6 +370,54 @@ new_pattern(PyObject *cls, Py_ssize_t n, Instruction **prog)
     if (prog)
         *prog = result->prog;
     return (PyObject *)result;
+}
+
+static PyObject *Pattern_richcompare (PyObject *self, PyObject *other, int op) {
+    if (op != Py_EQ && op != Py_NE) {
+        Py_INCREF(Py_NotImplemented);
+        return Py_NotImplemented;
+    }
+
+    /* Two patterns are equal if their code, length and env are equal */
+    if (patlen(self) != patlen(other)) {
+        D2("Lengths differ: %d vs %d", patlen(self), patlen(other));
+        goto ret_ne;
+    }
+    if (memcmp(patprog(self), patprog(other), patlen(self)) != 0) {
+        D("Instructions differ");
+        goto ret_ne;
+    }
+    /* Don't compare the environments - they are scratch areas for capture
+     * processing and grammar construction.
+     * TODO: Verify this!
+     */
+    /* We're equal */
+    if (op == Py_EQ)
+        Py_RETURN_TRUE;
+    else
+        Py_RETURN_FALSE;
+#if 0
+    if (patenv(self) == NULL || patenv(other) == NULL) {
+        if (patenv(self) != patenv(other)) {
+            D("One env is null");
+            goto ret_ne;
+        }
+        /* We're equal */
+        if (op == Py_EQ)
+            Py_RETURN_TRUE;
+        else
+            Py_RETURN_FALSE;
+    }
+    /* We need to compare the environments */
+    D("Compare environments");
+    return PyObject_RichCompare(patenv(self), patenv(other), op);
+#endif
+
+ret_ne:
+    if (op == Py_NE)
+        Py_RETURN_TRUE;
+    else
+        Py_RETURN_FALSE;
 }
 
 static PyObject *
@@ -1375,7 +1468,7 @@ static int stringcap(PyObject *lst, CapState *cs) {
     updatecache(cs, cs->cap->idx);
     c = lua_tolstring(cs->L, subscache(cs), &len);
     */
-    str = PyList_GetItem(cs->env, cs->cap->idx);
+    str = PyList_GetItem(cs->env, cs->cap->idx + 1 /* TODO */);
     PyString_AsStringAndSize(str, &c, &len);
     n = getstrcaps(cs, cps, 0) - 1;
     for (i = 0; i < len; i++) {
@@ -1747,7 +1840,8 @@ static PyTypeObject PatternType = {
     (traverseproc)Pattern_traverse,
                                /* tp_traverse */
     (inquiry)Pattern_clear,    /* tp_clear */
-    0,                         /* tp_richcompare */
+    (richcmpfunc)Pattern_richcompare,
+                               /* tp_richcompare */
     0,                         /* tp_weaklistoffset */
     0,                         /* tp_iter */
     0,                         /* tp_iternext */
