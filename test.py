@@ -218,5 +218,38 @@ class TestDummyPattern(unittest.TestCase):
         d = P.Dummy()
         self.assertEqual(patt.dump(), d.dump())
 
+def lines(str):
+    return [l.strip() for l in str.strip().splitlines()]
+
+class TestCaptureBug(unittest.TestCase):
+    def testbug001(self):
+        P = Pattern
+        p = P.Grammar(P.Match("Omega") | P.Any(1) + P.Var(0))
+        p2 = P.CapC("hello") + p | P.CapC(12)
+        with stdout(StringIO()) as s:
+            p2.display()
+        expected = """\
+00: choice -> 15 (0)
+01: emptycaptureidx constant(n = 0)  (off = 1)
+02: call -> 4
+03: jmp -> 14
+04: char 'O'-> 11
+05: choice -> 11 (1)
+06: char 'm'-> FAIL
+07: char 'e'-> FAIL
+08: char 'g'-> FAIL
+09: char 'a'-> FAIL
+10: commit -> 13
+11: any * 1-> FAIL
+12: jmp -> 4
+13: ret
+14: commit -> 16
+15: emptycaptureidx constant(n = 0)  (off = 3)
+16: end
+"""
+        result = s.getvalue()
+        for l1, l2 in zip(lines(result), lines(expected)):
+            self.assertEqual(l1, l2)
+
 if __name__ == '__main__':
     unittest.main()

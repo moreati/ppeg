@@ -6,7 +6,7 @@
 #undef printf
 
 #define DEBUG 1
-//#undef DEBUG
+#undef DEBUG
 #ifdef DEBUG
 #define D(s) (fprintf(stderr, s "\n"), fflush(stderr))
 #define D1(s,a) (fprintf(stderr, s "\n",a), fflush(stderr))
@@ -160,8 +160,10 @@ static Py_ssize_t val2env (PyObject *patt, PyObject *val) {
     return PyList_Size(env);
 }
 
-static PyObject *env2val (PyObject *patt, Py_ssize_t idx) {
-    PyObject *env = patenv(patt);
+/* Use env here, as often called with cs->env, but may be better to have
+ * CapState hold the pattern rather than its env
+ */
+static PyObject *env2val (PyObject *env, Py_ssize_t idx) {
     PyObject *result;
 
     if (idx == 0)
@@ -418,6 +420,16 @@ ret_ne:
         Py_RETURN_TRUE;
     else
         Py_RETURN_FALSE;
+}
+
+static PyObject *
+Pattern_env(PyObject* self)
+{
+    PyObject *env = patenv(self);
+    if (env == NULL)
+        Py_RETURN_NONE;
+    Py_INCREF(env);
+    return env;
 }
 
 static PyObject *
@@ -1378,14 +1390,12 @@ static PyObject *Pattern_CaptureConst(PyObject *cls, PyObject *val) {
     PyObject *result;
     result = new_pattern(cls, 1, &p);
     if (result) {
-        setinstcap(p, IEmptyCapture, 0, Cconst, 0);
-        ((Pattern*)result)->env = PyList_New(1);
-        if (((Pattern*)result)->env == NULL) {
+        Py_ssize_t j = val2env(result, val);
+        if (j == -1) {
             Py_DECREF(result);
             return NULL;
         }
-        Py_INCREF(val);
-        PyList_SET_ITEM(((Pattern*)result)->env, 0, val);
+        setinstcap(p, IEmptyCaptureIdx, j, Cconst, 0);
     }
     return result;
 }
@@ -1591,7 +1601,7 @@ static int pushcapture (CapState *cs) {
         }
         case Cconst: {
             int arg = (cs->cap++)->idx;
-            PyObject *val = PySequence_GetItem(cs->env, arg);
+            PyObject *val = env2val(cs->env, arg);
             if (val == NULL)
                 return 0;
             PyList_Append(cs->values, val);
@@ -1722,6 +1732,9 @@ static PyMethodDef Pattern_methods[] = {
     },
     {"display", (PyCFunction)Pattern_display, METH_NOARGS,
      "Print the pattern, for debugging"
+    },
+    {"env", (PyCFunction)Pattern_env, METH_NOARGS,
+     "The pattern environment, for debugging"
     },
     {"Any", (PyCFunction)Pattern_Any, METH_O | METH_CLASS,
      "A pattern which matches any character(s)"
