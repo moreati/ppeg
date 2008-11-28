@@ -56,6 +56,10 @@ typedef struct {
 #define patlen(pat) (((Pattern *)(pat))->prog_len)
 #define patenv(pat) (((Pattern *)(pat))->env)
 
+/* **********************************************************************
+ * Object administrative functions
+ * **********************************************************************
+ */
 static void
 Pattern_dealloc(Pattern* self)
 {
@@ -101,7 +105,10 @@ Pattern_clear(Pattern *self)
     return 0;
 }
 
-/* val <-> env conversion routines */
+/* **********************************************************************
+ * Environment management - convert a PyObject to an integer
+ * **********************************************************************
+ */
 #define ENV_ERROR (-1)
 
 static Py_ssize_t val2env (PyObject *patt, PyObject *val) {
@@ -141,12 +148,10 @@ static PyObject *env2val (PyObject *patt, Py_ssize_t idx) {
     return result;
 }
 
-/*
-** {======================================================
-** Verifier
-** =======================================================
-*/
-
+/* **********************************************************************
+ * Pattern verifier
+ * **********************************************************************
+ */
 static Py_ssize_t getposition(PyObject *patt, PyObject *positions, int i)
 {
     PyObject *key = env2val(patt, i);
@@ -309,10 +314,10 @@ static void checkrule (PyObject *patt, Instruction *op, int from, int to,
   verify(patt, op, op + from, op + to - 1, positions);
 }
 
-
-
-
-/* }====================================================== */
+/* **********************************************************************
+ * Pattern creation functions
+ * **********************************************************************
+ */
 static PyObject *
 new_pattern(PyObject *cls, Py_ssize_t n, Instruction **prog)
 {
@@ -338,103 +343,49 @@ new_pattern(PyObject *cls, Py_ssize_t n, Instruction **prog)
     return (PyObject *)result;
 }
 
-static PyObject *Pattern_richcompare (PyObject *self, PyObject *other, int op) {
-    if (op != Py_EQ && op != Py_NE) {
-        Py_INCREF(Py_NotImplemented);
-        return Py_NotImplemented;
-    }
+#define pattsize(p) ((((Pattern*)(p))->prog_len) - 1)
 
-    /* Two patterns are equal if their code, length and env are equal */
-    if (patlen(self) != patlen(other)) {
-        D2("Lengths differ: %d vs %d", patlen(self), patlen(other));
-        goto ret_ne;
-    }
-    if (memcmp(patprog(self), patprog(other), patlen(self)) != 0) {
-        D("Instructions differ");
-        goto ret_ne;
-    }
-    /* Don't compare the environments - they are scratch areas for capture
-     * processing and grammar construction.
-     * TODO: Verify this!
-     */
-    /* We're equal */
-    if (op == Py_EQ)
-        Py_RETURN_TRUE;
-    else
-        Py_RETURN_FALSE;
-#if 0
-    if (patenv(self) == NULL || patenv(other) == NULL) {
-        if (patenv(self) != patenv(other)) {
-            D("One env is null");
-            goto ret_ne;
+Py_ssize_t
+jointables (Pattern *p1, Pattern *p2)
+{
+    Py_ssize_t n;
+
+    if (p1->env == NULL) {
+        n = 0;
+        if (p2->env != NULL) {
+            p1->env = p2->env;
+            Py_INCREF(p1->env);
         }
-        /* We're equal */
-        if (op == Py_EQ)
-            Py_RETURN_TRUE;
-        else
-            Py_RETURN_FALSE;
+    } else {
+        n = PyList_Size(p1->env);
+        if (p2->env != NULL) {
+            /* Lists do support inplace concat */
+            PyObject *new = PySequence_InPlaceConcat(p1->env, p2->env);
+            if (new == NULL) {
+                /* Error - what do we do??!? */
+            }
+            Py_XDECREF(new);
+        }
     }
-    /* We need to compare the environments */
-    D("Compare environments");
-    return PyObject_RichCompare(patenv(self), patenv(other), op);
-#endif
-
-ret_ne:
-    if (op == Py_NE)
-        Py_RETURN_TRUE;
-    else
-        Py_RETURN_FALSE;
+    return n;
 }
 
-static PyObject *
-Pattern_env(PyObject* self)
+Py_ssize_t
+addpatt (PyObject *self, Instruction *p, PyObject *other)
 {
-    PyObject *env = patenv(self);
-    if (env == NULL)
-        Py_RETURN_NONE;
-    Py_INCREF(env);
-    return env;
-}
-
-static PyObject *
-Pattern_display(Pattern* self)
-{
-    printpatt(self->prog);
-    Py_RETURN_NONE;
-}
-
-static PyObject *
-Pattern_dump(Pattern *self)
-{
-    PyObject *result = PyList_New(0);
-    Instruction *p = self->prog;
-    static const char *const names[] = {
-        "any", "char", "set", "span", "ret", "end", "choice", "jmp", "call",
-        "open_call", "commit", "partial_commit", "back_commit", "failtwice",
-        "fail", "giveup", "func", "fullcapture", "emptycapture",
-        "emptycaptureidx", "opencapture", "closecapture", "closeruntime"
-    };
-
-    if (result == NULL)
-        return NULL;
-
-    for (;;) {
-        PyObject *item = Py_BuildValue("(sii)", names[p->i.code],
-                p->i.aux, p->i.offset);
-        if (item == NULL) {
-            Py_DECREF(result);
-            return NULL;
+    Pattern *p1 = (Pattern *)self;
+    Pattern *p2 = (Pattern *)other;
+    Py_ssize_t sz = pattsize(p2);
+    Py_ssize_t corr = jointables(p1, p2);
+    copypatt(p, p2->prog, sz + 1);
+    if (corr != 0) {
+        Instruction *px;
+        for (px = p; px < p + sz; px += sizei(px)) {
+            if (isfenvoff(px) && px->i.offset != 0)
+                px->i.offset += corr;
         }
-        if (PyList_Append(result, item) == -1) {
-            Py_DECREF(item);
-            Py_DECREF(result);
-            return NULL;
-        }
-        if (p->i.code == IEnd) break;
-        p += sizei(p);
     }
-
-    return result;
+    return sz;
 }
 
 static PyObject *newcharset (PyObject *cls, Instruction **prog)
@@ -450,6 +401,10 @@ static PyObject *newcharset (PyObject *cls, Instruction **prog)
     return result;
 }
 
+/* **********************************************************************
+ * Constructors
+ * **********************************************************************
+ */
 static PyObject *
 Pattern_Set(PyObject *cls, PyObject *arg)
 {
@@ -605,51 +560,281 @@ Pattern_Dummy(PyObject *cls)
     return result;
 }
 
-Py_ssize_t
-jointables (Pattern *p1, Pattern *p2)
+/* **********************************************************************
+ * Grammar creation
+ * **********************************************************************
+ */
+static PyObject *
+Pattern_Var (PyObject *cls, PyObject *name)
 {
-    Py_ssize_t n;
+  Instruction *p;
+  PyObject *result = new_pattern(cls, 1, &p);
+  if (result == NULL)
+      return NULL;
+  setinst(p, IOpenCall, val2env(result, name));
+  return result;
+}
 
-    if (p1->env == NULL) {
-        n = 0;
-        if (p2->env != NULL) {
-            p1->env = p2->env;
-            Py_INCREF(p1->env);
-        }
-    } else {
-        n = PyList_Size(p1->env);
-        if (p2->env != NULL) {
-            /* Lists do support inplace concat */
-            PyObject *new = PySequence_InPlaceConcat(p1->env, p2->env);
-            if (new == NULL) {
-                /* Error - what do we do??!? */
+static PyObject *
+Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
+{
+    PyObject *result = NULL;
+    PyObject *rules = NULL;
+    PyObject *positions = NULL;
+    int totalsize = 2; /* Include initial call and jump */
+    int n = 0; /* Number of rules */
+    Py_ssize_t i;
+    Py_ssize_t nargs;
+    Instruction *p;
+    PyObject *init_rule = NULL;
+    PyObject *initpos;
+    Py_ssize_t pos;
+    PyObject *k;
+    PyObject *v;
+
+    nargs = PySequence_Length(args);
+    rules = PyList_New(0);
+    positions = PyDict_New();
+
+    if (nargs == -1 || rules == NULL || positions == NULL)
+        goto err;
+
+    /* Accumulate the list of rules and a mapping id->position */
+    for (i = 0; i < nargs; ++i) {
+        PyObject *patt = PySequence_GetItem(args, i);
+        Py_ssize_t l;
+        PyObject *py_ts;
+        PyObject *py_i;
+        if (!PyObject_IsInstance(patt, cls)) { /* TODO: Pattern, rather than cls? */
+            if (i == 0) { /* initial rule */
+                init_rule = patt;
+                Py_INCREF(init_rule);
             }
-            Py_XDECREF(new);
+            else {
+                PyErr_SetString(PyExc_TypeError, "Grammar rule must be a pattern");
+                Py_DECREF(patt);
+                goto err;
+            }
+        }
+        l = pattsize(patt) + 1; /* Space for pattern + RET */
+        /* TODO: Error checking */
+        py_ts = PyInt_FromSsize_t(totalsize);
+        py_i = PyInt_FromSsize_t(i);
+        if (py_ts == NULL || py_i == NULL) {
+            Py_DECREF(patt);
+            Py_XDECREF(py_ts);
+            Py_XDECREF(py_i);
+            goto err;
+        }
+        PyDict_SetItem(positions, py_i, py_ts);
+        Py_DECREF(py_ts);
+        Py_DECREF(py_i);
+        PyList_Append(rules, patt);
+        totalsize += l;
+        ++n;
+        Py_DECREF(patt);
+    }
+    pos = 0;
+    while (kw && PyDict_Next(kw, &pos, &k, &v)) {
+        PyObject *patt = v;
+        Py_ssize_t l;
+        PyObject *py_ts;
+        if (!PyObject_IsInstance(patt, cls)) { /* TODO: Pattern, rather than cls? */
+            PyErr_SetString(PyExc_TypeError, "Grammar rule must be a pattern");
+            goto err;
+        }
+        l = pattsize(patt) + 1; /* Space for pattern + RET */
+        /* TODO: Error checking */
+        py_ts = PyInt_FromSsize_t(totalsize);
+        if (py_ts == NULL) {
+            goto err;
+        }
+        PyDict_SetItem(positions, k, py_ts);
+        Py_DECREF(py_ts);
+        PyList_Append(rules, patt);
+        totalsize += l;
+        ++n;
+    }
+
+    if (n == 0) {
+        PyErr_SetString(PyExc_ValueError, "Empty grammar");
+        goto err;
+    }
+
+    result = new_pattern(cls, totalsize, &p);
+    if (result == NULL)
+        goto err;
+    nargs = PySequence_Length(rules);
+    if (nargs == -1)
+        goto err;
+    ++p; /* Leave space for call */
+    setinst(p++, IJmp, totalsize - 1);  /* after call, jumps to the end */
+
+    for (i = 0; i < nargs; ++i) {
+        PyObject *patt = PySequence_GetItem(rules, i);
+        if (patt == NULL)
+            goto err;
+        p += addpatt(result, p, patt);
+        setinst(p++, IRet, 0);
+    }
+    p -= totalsize;  /* back to first position */
+    totalsize = 2;  /* go through each rule's position */
+    for (i = 0; i < nargs; i++) {  /* check all rules */
+        PyObject *patt = PySequence_GetItem(rules, i);
+        Py_ssize_t l;
+        if (patt == NULL)
+            goto err;
+        l = pattsize(patt) + 1;
+        /* Rule is only needed for error message */
+#if 0
+        checkrule(patt, p, totalsize, totalsize + l, positions);
+#endif
+        totalsize += l;
+    }
+
+    /* Get the initial rule */
+    if (init_rule == NULL)
+        init_rule = PyInt_FromLong(0);
+    initpos = PyDict_GetItem(positions, init_rule);
+    if (initpos == NULL) {
+        PyErr_SetString(PyExc_ValueError, "Initial rule is not defined in the grammar");
+        goto err;
+    }
+    pos = PyInt_AsSsize_t(initpos);
+    setinst(p, ICall, pos);  /* first instruction calls initial rule */
+
+    /* correct calls */
+    for (i = 0; i < totalsize; i += sizei(p + i)) {
+        if (p[i].i.code == IOpenCall) {
+            /* TODO - definitely wrong (result isn't the right arg) */
+            int pos = getposition(result, positions, p[i].i.offset);
+            if (pos == -1 && PyErr_Occurred())
+                goto err;
+            p[i].i.code = (p[target(p, i + 1)].i.code == IRet) ? IJmp : ICall;
+            p[i].i.offset = pos - i;
         }
     }
-    return n;
+    optimizejumps(p);
+
+    Py_DECREF(init_rule);
+    Py_DECREF(rules);
+    Py_DECREF(positions);
+    return result;
+
+err:
+    Py_XDECREF(init_rule);
+    Py_XDECREF(positions);
+    Py_XDECREF(rules);
+    Py_XDECREF(result);
+    return NULL;
 }
 
-#define pattsize(p) ((((Pattern*)(p))->prog_len) - 1)
-
-Py_ssize_t
-addpatt (PyObject *self, Instruction *p, PyObject *other)
+/* **********************************************************************
+ * Pattern methods
+ * **********************************************************************
+ */
+static PyObject *
+Pattern_env(PyObject* self)
 {
-    Pattern *p1 = (Pattern *)self;
-    Pattern *p2 = (Pattern *)other;
-    Py_ssize_t sz = pattsize(p2);
-    Py_ssize_t corr = jointables(p1, p2);
-    copypatt(p, p2->prog, sz + 1);
-    if (corr != 0) {
-        Instruction *px;
-        for (px = p; px < p + sz; px += sizei(px)) {
-            if (isfenvoff(px) && px->i.offset != 0)
-                px->i.offset += corr;
-        }
-    }
-    return sz;
+    PyObject *env = patenv(self);
+    if (env == NULL)
+        Py_RETURN_NONE;
+    Py_INCREF(env);
+    return env;
 }
 
+static PyObject *
+Pattern_display(Pattern* self)
+{
+    printpatt(self->prog);
+    Py_RETURN_NONE;
+}
+
+static PyObject *
+Pattern_dump(Pattern *self)
+{
+    PyObject *result = PyList_New(0);
+    Instruction *p = self->prog;
+    static const char *const names[] = {
+        "any", "char", "set", "span", "ret", "end", "choice", "jmp", "call",
+        "open_call", "commit", "partial_commit", "back_commit", "failtwice",
+        "fail", "giveup", "func", "fullcapture", "emptycapture",
+        "emptycaptureidx", "opencapture", "closecapture", "closeruntime"
+    };
+
+    if (result == NULL)
+        return NULL;
+
+    for (;;) {
+        PyObject *item = Py_BuildValue("(sii)", names[p->i.code],
+                p->i.aux, p->i.offset);
+        if (item == NULL) {
+            Py_DECREF(result);
+            return NULL;
+        }
+        if (PyList_Append(result, item) == -1) {
+            Py_DECREF(item);
+            Py_DECREF(result);
+            return NULL;
+        }
+        if (p->i.code == IEnd) break;
+        p += sizei(p);
+    }
+
+    return result;
+}
+
+/* **********************************************************************
+ * Pattern operators
+ * **********************************************************************
+ */
+static PyObject *Pattern_richcompare (PyObject *self, PyObject *other, int op) {
+    if (op != Py_EQ && op != Py_NE) {
+        Py_INCREF(Py_NotImplemented);
+        return Py_NotImplemented;
+    }
+
+    /* Two patterns are equal if their code, length and env are equal */
+    if (patlen(self) != patlen(other)) {
+        D2("Lengths differ: %d vs %d", patlen(self), patlen(other));
+        goto ret_ne;
+    }
+    if (memcmp(patprog(self), patprog(other), patlen(self)) != 0) {
+        D("Instructions differ");
+        goto ret_ne;
+    }
+    /* Don't compare the environments - they are scratch areas for capture
+     * processing and grammar construction.
+     * TODO: Verify this!
+     */
+    /* We're equal */
+    if (op == Py_EQ)
+        Py_RETURN_TRUE;
+    else
+        Py_RETURN_FALSE;
+#if 0
+    if (patenv(self) == NULL || patenv(other) == NULL) {
+        if (patenv(self) != patenv(other)) {
+            D("One env is null");
+            goto ret_ne;
+        }
+        /* We're equal */
+        if (op == Py_EQ)
+            Py_RETURN_TRUE;
+        else
+            Py_RETURN_FALSE;
+    }
+    /* We need to compare the environments */
+    D("Compare environments");
+    return PyObject_RichCompare(patenv(self), patenv(other), op);
+#endif
+
+ret_ne:
+    if (op == Py_NE)
+        Py_RETURN_TRUE;
+    else
+        Py_RETURN_FALSE;
+}
 PyObject *
 Pattern_concat (PyObject *self, PyObject *other)
 {
@@ -1087,171 +1272,10 @@ Pattern_or (PyObject *self, PyObject *other)
     return result;
 }
 
-static PyObject *
-Pattern_Var (PyObject *cls, PyObject *name)
-{
-  Instruction *p;
-  PyObject *result = new_pattern(cls, 1, &p);
-  if (result == NULL)
-      return NULL;
-  setinst(p, IOpenCall, val2env(result, name));
-  return result;
-}
-
-static PyObject *
-Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
-{
-    PyObject *result = NULL;
-    PyObject *rules = NULL;
-    PyObject *positions = NULL;
-    int totalsize = 2; /* Include initial call and jump */
-    int n = 0; /* Number of rules */
-    Py_ssize_t i;
-    Py_ssize_t nargs;
-    Instruction *p;
-    PyObject *init_rule = NULL;
-    PyObject *initpos;
-    Py_ssize_t pos;
-    PyObject *k;
-    PyObject *v;
-
-    nargs = PySequence_Length(args);
-    rules = PyList_New(0);
-    positions = PyDict_New();
-
-    if (nargs == -1 || rules == NULL || positions == NULL)
-        goto err;
-
-    /* Accumulate the list of rules and a mapping id->position */
-    for (i = 0; i < nargs; ++i) {
-        PyObject *patt = PySequence_GetItem(args, i);
-        Py_ssize_t l;
-        PyObject *py_ts;
-        PyObject *py_i;
-        if (!PyObject_IsInstance(patt, cls)) { /* TODO: Pattern, rather than cls? */
-            if (i == 0) { /* initial rule */
-                init_rule = patt;
-                Py_INCREF(init_rule);
-            }
-            else {
-                PyErr_SetString(PyExc_TypeError, "Grammar rule must be a pattern");
-                Py_DECREF(patt);
-                goto err;
-            }
-        }
-        l = pattsize(patt) + 1; /* Space for pattern + RET */
-        /* TODO: Error checking */
-        py_ts = PyInt_FromSsize_t(totalsize);
-        py_i = PyInt_FromSsize_t(i);
-        if (py_ts == NULL || py_i == NULL) {
-            Py_DECREF(patt);
-            Py_XDECREF(py_ts);
-            Py_XDECREF(py_i);
-            goto err;
-        }
-        PyDict_SetItem(positions, py_i, py_ts);
-        Py_DECREF(py_ts);
-        Py_DECREF(py_i);
-        PyList_Append(rules, patt);
-        totalsize += l;
-        ++n;
-        Py_DECREF(patt);
-    }
-    pos = 0;
-    while (kw && PyDict_Next(kw, &pos, &k, &v)) {
-        PyObject *patt = v;
-        Py_ssize_t l;
-        PyObject *py_ts;
-        if (!PyObject_IsInstance(patt, cls)) { /* TODO: Pattern, rather than cls? */
-            PyErr_SetString(PyExc_TypeError, "Grammar rule must be a pattern");
-            goto err;
-        }
-        l = pattsize(patt) + 1; /* Space for pattern + RET */
-        /* TODO: Error checking */
-        py_ts = PyInt_FromSsize_t(totalsize);
-        if (py_ts == NULL) {
-            goto err;
-        }
-        PyDict_SetItem(positions, k, py_ts);
-        Py_DECREF(py_ts);
-        PyList_Append(rules, patt);
-        totalsize += l;
-        ++n;
-    }
-
-    if (n == 0) {
-        PyErr_SetString(PyExc_ValueError, "Empty grammar");
-        goto err;
-    }
-
-    result = new_pattern(cls, totalsize, &p);
-    if (result == NULL)
-        goto err;
-    nargs = PySequence_Length(rules);
-    if (nargs == -1)
-        goto err;
-    ++p; /* Leave space for call */
-    setinst(p++, IJmp, totalsize - 1);  /* after call, jumps to the end */
-
-    for (i = 0; i < nargs; ++i) {
-        PyObject *patt = PySequence_GetItem(rules, i);
-        if (patt == NULL)
-            goto err;
-        p += addpatt(result, p, patt);
-        setinst(p++, IRet, 0);
-    }
-    p -= totalsize;  /* back to first position */
-    totalsize = 2;  /* go through each rule's position */
-    for (i = 0; i < nargs; i++) {  /* check all rules */
-        PyObject *patt = PySequence_GetItem(rules, i);
-        Py_ssize_t l;
-        if (patt == NULL)
-            goto err;
-        l = pattsize(patt) + 1;
-        /* Rule is only needed for error message */
-#if 0
-        checkrule(patt, p, totalsize, totalsize + l, positions);
-#endif
-        totalsize += l;
-    }
-
-    /* Get the initial rule */
-    if (init_rule == NULL)
-        init_rule = PyInt_FromLong(0);
-    initpos = PyDict_GetItem(positions, init_rule);
-    if (initpos == NULL) {
-        PyErr_SetString(PyExc_ValueError, "Initial rule is not defined in the grammar");
-        goto err;
-    }
-    pos = PyInt_AsSsize_t(initpos);
-    setinst(p, ICall, pos);  /* first instruction calls initial rule */
-
-    /* correct calls */
-    for (i = 0; i < totalsize; i += sizei(p + i)) {
-        if (p[i].i.code == IOpenCall) {
-            /* TODO - definitely wrong (result isn't the right arg) */
-            int pos = getposition(result, positions, p[i].i.offset);
-            if (pos == -1 && PyErr_Occurred())
-                goto err;
-            p[i].i.code = (p[target(p, i + 1)].i.code == IRet) ? IJmp : ICall;
-            p[i].i.offset = pos - i;
-        }
-    }
-    optimizejumps(p);
-
-    Py_DECREF(init_rule);
-    Py_DECREF(rules);
-    Py_DECREF(positions);
-    return result;
-
-err:
-    Py_XDECREF(init_rule);
-    Py_XDECREF(positions);
-    Py_XDECREF(rules);
-    Py_XDECREF(result);
-    return NULL;
-}
-
+/* **********************************************************************
+ * Captures - creation of capture instructions
+ * **********************************************************************
+ */
 static PyObject *
 capture_aux (PyObject *cls, PyObject *pat, int kind, PyObject *label)
 {
@@ -1364,6 +1388,10 @@ static PyObject *Pattern_CaptureConst(PyObject *cls, PyObject *val) {
     return result;
 }
 
+/* **********************************************************************
+ * Captures - post-match capturing of values
+ * **********************************************************************
+ */
 typedef struct CapState {
   Capture *cap;  /* current capture */
   Capture *ocap;  /* (original) capture list */
@@ -1659,6 +1687,10 @@ static PyObject *getcaptures (PyObject *patt, Capture **capturep, const char *s,
     return result;
 }
 
+/* **********************************************************************
+ * Finally, the matcher
+ * **********************************************************************
+ */
 static PyObject *
 Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
 {
@@ -1685,6 +1717,10 @@ Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
     return result;
 }
 
+/* **********************************************************************
+ * Module creation - type initialisation, method tables, etc
+ * **********************************************************************
+ */
 static PyMethodDef Pattern_methods[] = {
     {"dump", (PyCFunction)Pattern_dump, METH_NOARGS,
      "Build a list representing the pattern, for debugging"
