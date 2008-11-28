@@ -78,6 +78,7 @@ static int resize_patt(PyObject *patt, Py_ssize_t n) {
 
     setinst(p + n, IEnd, 0);
     patlen(patt) = n + 1;
+    return 0;
 }
 
 /* Create a new pattern with the given class */
@@ -99,41 +100,50 @@ static PyObject *new_patt(PyObject *cls, Py_ssize_t n) {
 }
 
 /* Create a new pattern with the same class as the given object */
-#define empty_patt(source, n) (new_patt((source->ob_type),(n)))
+#define empty_patt(source, n) (new_patt((PyObject*)(source->ob_type),(n)))
+
+/* Clear a characterset pattern */
+static void clear_charset(Instruction *p) {
+    setinst(p, ISet, 0);
+    loopset(i, p[1].buff[i] = 0);
+}
+
+/* Create a new characterset pattern */
+static PyObject *new_charset(PyObject *cls)
+{
+    PyObject *result = new_patt(cls, CHARSETINSTSIZE);
+    if (result)
+        clear_charset(patprog(result));
+    return result;
+}
 
 /* **********************************************************************
  * Object administrative functions - memory management
  * **********************************************************************
  */
-static void
-Pattern_dealloc(Pattern* self)
+static void Pattern_dealloc(Pattern* self)
 {
     PyMem_Del(self->prog);
     Py_XDECREF(self->env);
     self->ob_type->tp_free((PyObject*)self);
 }
 
-static PyObject *
-Pattern_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
+static PyObject *Pattern_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
-    Pattern *self;
-
-    self = (Pattern *)type->tp_alloc(type, 0);
-    self->prog = NULL;
-    self->env = NULL;
-    return (PyObject *)self;
+    PyObject *self = type->tp_alloc(type, 0);
+    if (self) {
+        patprog(self) = NULL;
+        patenv(self) = NULL;
+    }
+    return self;
 }
 
-static int
-Pattern_traverse(Pattern *self, visitproc visit, void *arg)
-{
+static int Pattern_traverse(Pattern *self, visitproc visit, void *arg) {
     Py_VISIT(self->env);
     return 0;
 }
 
-static int
-Pattern_clear(Pattern *self)
-{
+static int Pattern_clear(Pattern *self) {
     Py_CLEAR(self->env);
     return 0;
 }
@@ -142,36 +152,107 @@ Pattern_clear(Pattern *self)
  * Object administrative functions - initialisation
  * **********************************************************************
  */
-static int init_fail (PyObject *self) {
+static int init_fail(PyObject *self) {
     if (resize_patt(self, 1) == -1)
         return -1;
     setinst(patprog(self), IFail, 0);
     return 0;
 }
 
-static int init_match (PyObject *self, char *str, Py_ssize_t len) {
+static int init_match(PyObject *self, char *str, Py_ssize_t len) {
     Py_ssize_t i;
+    Instruction *p;
     if (resize_patt(self, len) == -1)
         return -1;
+    p = patprog(self);
     for (i = 0; i < len; ++i)
         setinstaux(p+i, IChar, 0, (byte)str[i]);
     return 0;
 }
 
-static int init_set (PyObject *self, char *str, Py_ssize_t len) {
-    return -1;
+static int init_set(PyObject *self, char *str, Py_ssize_t len) {
+    if (len == 1) {
+        /* a unit set is equivalent to a literal */
+        if (resize_patt(self, len) == -1)
+            return -1;
+        setinstaux(patprog(self), IChar, 0, (byte)(*str));
+    } else {
+        Instruction *p;
+        if (resize_patt(self, CHARSETINSTSIZE) == -1)
+            return -1;
+        p = patprog(self);
+        clear_charset(p);
+        while (len--) {
+            setchar(p[1].buff, (byte)(*str));
+            str++;
+        }
+    }
+    return 0;
 }
 
-static int init_range (PyObject *self, char *str, Py_ssize_t len) {
-    return -1;
+static int init_range(PyObject *self, char *str, Py_ssize_t len) {
+    Instruction *p;
+    if (len % 2) {
+        /* Argument must be a string of even length */
+        PyErr_SetString(PyExc_ValueError, "Range argument must be a string of even length");
+        return -1;
+    }
+    if (resize_patt(self, CHARSETINSTSIZE) == -1)
+        return -1;
+    p = patprog(self);
+    clear_charset(p);
+    for (; len > 0; len -= 2, str += 2) {
+        int c;
+        for (c = (byte)str[0]; c <= (byte)str[1]; c++)
+            setchar(p[1].buff, c);
+    }
+    return 0;
 }
 
-static int init_any (PyObject *self, Py_ssize_t n) {
-    return -1;
+static Py_ssize_t fill_any(PyObject *self, Py_ssize_t n, int extra) {
+    Instruction *p;
+    Instruction *start;
+    if (resize_patt(self, (n - 1) / UCHAR_MAX + extra + 1) == -1)
+        return -1;
+    start = p = patprog(self);
+    for (; n > UCHAR_MAX; n -= UCHAR_MAX)
+        setinstaux(p++, IAny, 0, UCHAR_MAX);
+    setinstaux(p++, IAny, 0, n);
+    return (p - start);
 }
 
-static int
-Pattern_init(Pattern *self, PyObject *args, PyObject *kwds)
+static int init_any(PyObject *self, Py_ssize_t n) {
+    if (n == 0) {
+        /* Match the null string */
+        if (resize_patt(self, 0) == -1)
+            return -1;
+        /* Nothing more to do */
+    }
+    else if (n > 0) {
+        if (fill_any(self, n, 0) == -1)
+            return -1;
+    }
+    else if (-n <= UCHAR_MAX) {
+        if (resize_patt(self, 2) == -1)
+            return -1;
+        setinstaux(patprog(self), IAny, 2, -n);
+        setinst(patprog(self) + 1, IFail, 0);
+    }
+    else {
+        int offset = 2;  /* space for IAny & IChoice */
+        Instruction *p;
+        offset = fill_any(self, -n - UCHAR_MAX, 3);
+        if (offset == -1)
+            return -1;
+        p = patprog(self);
+        setinstaux(p, IAny, offset + 1, UCHAR_MAX);
+        setinstaux(p + 1, IChoice, offset, UCHAR_MAX);
+        setinst(p + offset, IFailTwice, 0);
+    }
+    return 0;
+}
+
+static int Pattern_init(PyObject *self, PyObject *args, PyObject *kwds)
 {
     static char *kwlist[] = {"match", "set", "range", NULL};
     PyObject *match = NULL;
@@ -185,12 +266,13 @@ Pattern_init(Pattern *self, PyObject *args, PyObject *kwds)
         return -1;
 
     /* No arguments - just initialise an empty pattern */
-    if (arg == NULL && set == NULL && range == NULL) {
-        self->prog = PyMem_New(Instruction, 1);
-        if (self->prog == NULL)
+    if (match == NULL && set == NULL && range == NULL) {
+        Instruction *p = PyMem_New(Instruction, 1);
+        if (p == NULL)
             return -1;
-        setinst(self->prog, IEnd, 0);
-        self->prog_len = 1;
+        setinst(p, IEnd, 0);
+        patprog(self) = p;
+        patlen(self) = 1;
         return 0;
     }
 
@@ -242,7 +324,7 @@ invalid:
  */
 #define ENV_ERROR (-1)
 
-static Py_ssize_t val2env (PyObject *patt, PyObject *val) {
+static Py_ssize_t val2env(PyObject *patt, PyObject *val) {
     PyObject *env = patenv(patt);
 
     if (val == NULL)
@@ -265,7 +347,7 @@ static Py_ssize_t val2env (PyObject *patt, PyObject *val) {
     return PyList_Size(env);
 }
 
-static PyObject *env2val (PyObject *patt, Py_ssize_t idx) {
+static PyObject *env2val(PyObject *patt, Py_ssize_t idx) {
     PyObject *env = patenv(patt);
     PyObject *result;
 
@@ -519,129 +601,58 @@ addpatt (PyObject *self, Instruction *p, PyObject *other)
     return sz;
 }
 
-static PyObject *newcharset (PyObject *cls, Instruction **prog)
-{
-    Instruction *p;
-    PyObject *result = new_pattern(cls, CHARSETINSTSIZE, &p);
-    if (result) {
-        p[0].i.code = ISet;
-        p[0].i.offset = 0;
-        loopset(i, p[1].buff[i] = 0);
-        if (prog) *prog = p;
-    }
-    return result;
-}
-
 /* **********************************************************************
  * Constructors
  * **********************************************************************
  */
-static PyObject *
-Pattern_Set(PyObject *cls, PyObject *arg)
-{
+static PyObject *Pattern_Set(PyObject *cls, PyObject *arg) {
     char *str;
     Py_ssize_t len;
     PyObject *result;
-    Instruction *p;
 
     if (PyString_AsStringAndSize(arg, &str, &len) == -1)
         return NULL;
-
-    if (len == 1) {
-        /* a unit set is equivalent to a literal */
-        result = new_pattern(cls, len, &p);
-        if (result)
-            setinstaux(p, IChar, 0, (byte)(*str));
-    } else {
-        result = newcharset(cls, &p);
-        if (result) {
-            while (len--) {
-                setchar(p[1].buff, (byte)(*str));
-                str++;
-            }
-        }
-    }
-    return result;
-}
-
-static PyObject *
-Pattern_Range(PyObject *cls, PyObject *arg)
-{
-    char *str;
-    Py_ssize_t len;
-    PyObject *result;
-    Instruction *p;
-
-    if (PyString_AsStringAndSize(arg, &str, &len) == -1)
-        return NULL;
-    if (len % 2) {
-        /* Argument must be a string of even length */
-        PyErr_SetString(PyExc_ValueError, "Range argument must be a string of even length");
-        return NULL;
-    }
-
-    result = newcharset(cls, &p);
+    result = new_patt(cls, 0);
     if (result == NULL)
         return NULL;
-
-    for (; len > 0; len -= 2, str += 2) {
-        int c;
-        for (c = (byte)str[0]; c <= (byte)str[1]; c++)
-            setchar(p[1].buff, c);
+    if (init_set(result, str, len) == -1) {
+        Py_DECREF(result);
+        return NULL;
     }
     return result;
 }
 
-static PyObject *any (PyObject *cls, int n, int extra, int *offsetp, Instruction **prog)
+static PyObject *Pattern_Range(PyObject *cls, PyObject *arg)
 {
-    int offset = offsetp ? *offsetp : 0;
-    Instruction *p;
-    PyObject *result = new_pattern(cls, (n - 1)/UCHAR_MAX + extra + 1, &p);
-    Instruction *p1 = p + offset;
-    if (result) {
-        for (; n > UCHAR_MAX; n -= UCHAR_MAX)
-        setinstaux(p1++, IAny, 0, UCHAR_MAX);
-        setinstaux(p1++, IAny, 0, n);
-        if (offsetp) *offsetp = p1 - p;
-        if (prog) *prog = p;
+    char *str;
+    Py_ssize_t len;
+    PyObject *result;
+
+    if (PyString_AsStringAndSize(arg, &str, &len) == -1)
+        return NULL;
+    result = new_patt(cls, 0);
+    if (result == NULL)
+        return NULL;
+    if (init_range(result, str, len) == -1) {
+        Py_DECREF(result);
+        return NULL;
     }
     return result;
 }
 
-static PyObject *
-Pattern_Any(PyObject *cls, PyObject *arg)
+static PyObject *Pattern_Any(PyObject *cls, PyObject *arg)
 {
     long n = PyInt_AsLong(arg);
     PyObject *result;
 
     if (n == -1 && PyErr_Occurred())
         return NULL;
-
-    if (n == 0) {
-        /* Match the null string */
-        /* Nothing more to do */
-        result = new_pattern(cls, 0, NULL);
-    }
-    else if (n > 0) {
-        result = any(cls, n, 0, NULL, NULL);
-    }
-    else if (-n <= UCHAR_MAX) {
-        Instruction *p;
-        result = new_pattern(cls, 2, &p);
-        if (result) {
-            setinstaux(p, IAny, 2, -n);
-            setinst(p + 1, IFail, 0);
-        }
-    }
-    else {
-        int offset = 2;  /* space for IAny & IChoice */
-        Instruction *p;
-        result = any(cls, -n - UCHAR_MAX, 3, &offset, &p);
-        if (result) {
-            setinstaux(p, IAny, offset + 1, UCHAR_MAX);
-            setinstaux(p + 1, IChoice, offset, UCHAR_MAX);
-            setinst(p + offset, IFailTwice, 0);
-        }
+    result = new_patt(cls, 0);
+    if (result == NULL)
+        return NULL;
+    if (init_any(result, n) == -1) {
+        Py_DECREF(result);
+        return NULL;
     }
     return result;
 }
@@ -674,13 +685,10 @@ static PyObject *Pattern_Fail(PyObject *cls) {
     return result;
 }
 
-static PyObject *
-Pattern_Dummy(PyObject *cls)
-{
-    Instruction *p;
-    PyObject *result = new_pattern(cls, sizeof(Dummy)/sizeof(*Dummy), &p);
+static PyObject *Pattern_Dummy(PyObject *cls) {
+    PyObject *result = new_patt(cls, sizeof(Dummy)/sizeof(*Dummy));
     if (result)
-        memcpy(p, Dummy, sizeof(Dummy));
+        memcpy(patprog(result), Dummy, sizeof(Dummy));
     return result;
 }
 
@@ -688,15 +696,18 @@ Pattern_Dummy(PyObject *cls)
  * Grammar creation
  * **********************************************************************
  */
-static PyObject *
-Pattern_Var (PyObject *cls, PyObject *name)
-{
-  Instruction *p;
-  PyObject *result = new_pattern(cls, 1, &p);
-  if (result == NULL)
-      return NULL;
-  setinst(p, IOpenCall, val2env(result, name));
-  return result;
+static PyObject *Pattern_Var (PyObject *cls, PyObject *name) {
+    PyObject *result = new_patt(cls, 1);
+    Py_ssize_t idx;
+    if (result == NULL)
+        return NULL;
+    idx = val2env(result, name);
+    if (idx == ENV_ERROR) {
+        Py_DECREF(result);
+        return NULL;
+    }
+    setinst(patprog(result), IOpenCall, idx);
+    return result;
 }
 
 static PyObject *
@@ -729,7 +740,7 @@ Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
         Py_ssize_t l;
         PyObject *py_ts;
         PyObject *py_i;
-        if (!PyObject_IsInstance(patt, cls)) { /* TODO: Pattern, rather than cls? */
+        if (!PyObject_IsInstance(&PatternType, cls)) {
             if (i == 0) { /* initial rule */
                 init_rule = patt;
                 Py_INCREF(init_rule);
@@ -979,9 +990,11 @@ Pattern_concat (PyObject *self, PyObject *other)
     }
 
     if (isany(p1) && isany(p2)) {
-        PyObject *type = PyObject_Type(self);
-        PyObject *result = any(type, p1->i.aux + p2->i.aux, 0, NULL, NULL);
-        Py_DECREF(type);
+        PyObject *result = empty_patt(self, 0);
+        if (result == NULL)
+            return NULL;
+        if (init_any(result, p1->i.aux + p2->i.aux) == -1)
+            return NULL;
         return result;
     }
     else
@@ -1056,9 +1069,9 @@ Pattern_diff (PyObject *self, PyObject *other)
     Instruction *p;
 
     if (tocharset(p1, &st1) == ISCHARSET && tocharset(p2, &st2) == ISCHARSET) {
-        result = newcharset(type, &p);
+        result = new_charset(type);
         if (result)
-            loopset(i, p[1].buff[i] = st1.cs[i] & ~st2.cs[i]);
+            loopset(i, patprog(result)[1].buff[i] = st1.cs[i] & ~st2.cs[i]);
     }
     else if (isheadfail(p2)) {
         result = new_pattern(type, l2 + 1 + l1, &p);
