@@ -55,9 +55,54 @@ typedef struct {
 #define patprog(pat) (((Pattern *)(pat))->prog)
 #define patlen(pat) (((Pattern *)(pat))->prog_len)
 #define patenv(pat) (((Pattern *)(pat))->env)
+#define patsize(pat) ((patlen(pat)) - 1)
 
 /* **********************************************************************
- * Object administrative functions
+ * Pattern object creation
+ * **********************************************************************
+ */
+/* Reset the instruction buffer for the given object */
+static int resize_patt(PyObject *patt, Py_ssize_t n) {
+    Instruction *p;
+
+    if (n >= MAXPATTSIZE - 1) {
+        PyErr_SetString(PyExc_ValueError, "Pattern too big");
+        return -1;
+    }
+
+    PyMem_Del(patprog(patt));
+    patprog(patt) = p = PyMem_New(Instruction, n + 1);
+    if (p == NULL) {
+        return -1;
+    }
+
+    setinst(p + n, IEnd, 0);
+    patlen(patt) = n + 1;
+}
+
+/* Create a new pattern with the given class */
+static PyObject *new_patt(PyObject *cls, Py_ssize_t n) {
+    PyObject *result = PyObject_CallFunction(cls, "");
+    if (result == NULL)
+        return NULL;
+
+    /* n == 0 means don't further initialise the buffer */
+    if (n == 0)
+        return result;
+
+    if (resize_patt(result, n) == -1) {
+        Py_DECREF(result);
+        return NULL;
+    }
+
+    return result;
+}
+
+/* Create a new pattern with the same class as the given object */
+#define empty_patt(source, n) (new_patt((source->ob_type),(n)))
+
+/* **********************************************************************
+ * Object administrative functions - memory management
  * **********************************************************************
  */
 static void
@@ -80,18 +125,6 @@ Pattern_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 }
 
 static int
-Pattern_init(Pattern *self, PyObject *args, PyObject *kwds)
-{
-    self->prog = PyMem_New(Instruction, 1);
-    if (self->prog == NULL)
-        return -1;
-    setinst(self->prog, IEnd, 0);
-    self->prog_len = 1;
-
-    return 0;
-}
-
-static int
 Pattern_traverse(Pattern *self, visitproc visit, void *arg)
 {
     Py_VISIT(self->env);
@@ -102,6 +135,104 @@ static int
 Pattern_clear(Pattern *self)
 {
     Py_CLEAR(self->env);
+    return 0;
+}
+
+/* **********************************************************************
+ * Object administrative functions - initialisation
+ * **********************************************************************
+ */
+static int init_fail (PyObject *self) {
+    if (resize_patt(self, 1) == -1)
+        return -1;
+    setinst(patprog(self), IFail, 0);
+    return 0;
+}
+
+static int init_match (PyObject *self, char *str, Py_ssize_t len) {
+    Py_ssize_t i;
+    if (resize_patt(self, len) == -1)
+        return -1;
+    for (i = 0; i < len; ++i)
+        setinstaux(p+i, IChar, 0, (byte)str[i]);
+    return 0;
+}
+
+static int init_set (PyObject *self, char *str, Py_ssize_t len) {
+    return -1;
+}
+
+static int init_range (PyObject *self, char *str, Py_ssize_t len) {
+    return -1;
+}
+
+static int init_any (PyObject *self, Py_ssize_t n) {
+    return -1;
+}
+
+static int
+Pattern_init(Pattern *self, PyObject *args, PyObject *kwds)
+{
+    static char *kwlist[] = {"match", "set", "range", NULL};
+    PyObject *match = NULL;
+    char *set = NULL;
+    Py_ssize_t setlen = 0;
+    char *range = NULL;
+    Py_ssize_t rangelen = 0;
+
+    if (!PyArg_ParseTupleAndKeywords(args, kwds, "|Os#s#", kwlist,
+                &match, &set, &setlen, &range, &rangelen))
+        return -1;
+
+    /* No arguments - just initialise an empty pattern */
+    if (arg == NULL && set == NULL && range == NULL) {
+        self->prog = PyMem_New(Instruction, 1);
+        if (self->prog == NULL)
+            return -1;
+        setinst(self->prog, IEnd, 0);
+        self->prog_len = 1;
+        return 0;
+    }
+
+    /* Only one argument should be passed */
+    if ((match && set) || (match && range) || (set && range)) {
+        PyErr_SetString(PyExc_TypeError, "Only one of match, set or range can be specified");
+        return -1;
+    }
+
+    if (set) {
+        return init_set(self, set, setlen);
+    }
+    else if (range) {
+        return init_range(self, range, rangelen);
+    }
+    else if (match == Py_None) {
+        return init_fail(self);
+    }
+    else if (PyIndex_Check(match)) {
+        PyObject *idx = PyNumber_Index(match);
+        Py_ssize_t n;
+        if (idx == NULL)
+            goto invalid;
+        n = PyInt_AsSsize_t(idx);
+        Py_DECREF(idx);
+        if (n == -1 && PyErr_Occurred())
+            goto invalid;
+        return init_any(self, n);
+    }
+    else if (PyString_Check(match)) {
+        char *str;
+        Py_ssize_t len;
+        if (PyString_AsStringAndSize(match, &str, &len) == -1)
+            goto invalid;
+        return init_match(self, str, len);
+    }
+    else {
+invalid:
+        PyErr_SetString(PyExc_TypeError, "Pattern argument must be None, or convertible to a string or an integer");
+        return -1;
+    }
+
     return 0;
 }
 
@@ -515,38 +646,31 @@ Pattern_Any(PyObject *cls, PyObject *arg)
     return result;
 }
 
-static PyObject *
-Pattern_Match(PyObject *cls, PyObject *arg)
-{
+static PyObject *Pattern_Match(PyObject *cls, PyObject *arg) {
     char *str;
     Py_ssize_t len;
-    Py_ssize_t i;
     PyObject *result;
-    Instruction *p;
 
     if (PyString_AsStringAndSize(arg, &str, &len) == -1)
         return NULL;
-
-    result = new_pattern(cls, len, &p);
+    result = new_patt(cls, 0);
     if (result == NULL)
         return NULL;
-    for (i = 0; i < len; ++i)
-        setinstaux(p+i, IChar, 0, (byte)str[i]);
-
+    if (init_match(result, str, len) == -1) {
+        Py_DECREF(result);
+        return NULL;
+    }
     return result;
 }
 
-static PyObject *
-Pattern_Fail(PyObject *cls)
-{
-    PyObject *result;
-    Instruction *p;
-
-    result = new_pattern(cls, 1, &p);
+static PyObject *Pattern_Fail(PyObject *cls) {
+    PyObject *result = new_patt(cls, 0);
     if (result == NULL)
         return NULL;
-
-    setinst(p, IFail, 0);
+    if (init_fail(result) == -1) {
+        Py_DECREF(result);
+        return NULL;
+    }
     return result;
 }
 
