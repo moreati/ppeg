@@ -101,42 +101,8 @@ Pattern_clear(Pattern *self)
     return 0;
 }
 
-static int
-value2fenv (PyObject *obj, PyObject *val)
-{
-    Pattern *patt = (Pattern *)obj;
-    D("Starting value2fenv");
-    D1("Env is %p", patt->env);
-    D1("Env has %d entries", patt->env ? PyList_Size(patt->env) : -1);
-    Py_XDECREF(patt->env);
-    D("Freed env");
-    patt->env = PyList_New(1);
-    if (patt->env == NULL)
-        return -1;
-    D("Have new env");
-    /* Ugly hack to make sure we don't return 0! */
-    Py_INCREF(val);
-    PyList_SET_ITEM(patt->env, 0, val);
-    D("Put value in");
-    return 0;
-}
-
-static int
-getlabel(PyObject *obj, PyObject *val)
-{
-    int r;
-    D("Getlabel");
-    if (val == NULL)
-        return 0;
-    D("Value is not NULL");
-    r = value2fenv(obj, val);
-    D1("Got %d", r);
-    if (r == -1)
-        return -1;
-    return r + 1;
-}
-
-/* Better versions of val <-> env conversion routines */
+/* val <-> env conversion routines */
+#define ENV_ERROR (-1)
 
 static Py_ssize_t val2env (PyObject *patt, PyObject *val) {
     PyObject *env = patenv(patt);
@@ -147,23 +113,22 @@ static Py_ssize_t val2env (PyObject *patt, PyObject *val) {
     if (env == NULL) {
         env = PyList_New(0);
         if (env == NULL)
-            return -1;
+            return ENV_ERROR;
         patenv(patt) = env;
     }
 
     if (PyList_Append(env, val) == -1)
-        return -1;
+        return ENV_ERROR;
 
     /* Note - this is 1 more than the index.
-     * This is deliberate, so that 0 can be used to represent NULL.
+     * This is deliberate, so that 0 can be used to represent NULL (which is a
+     * common case)
      */
     return PyList_Size(env);
 }
 
-/* Use env here, as often called with cs->env, but may be better to have
- * CapState hold the pattern rather than its env
- */
-static PyObject *env2val (PyObject *env, Py_ssize_t idx) {
+static PyObject *env2val (PyObject *patt, Py_ssize_t idx) {
+    PyObject *env = patenv(patt);
     PyObject *result;
 
     if (idx == 0)
@@ -184,8 +149,7 @@ static PyObject *env2val (PyObject *env, Py_ssize_t idx) {
 
 static Py_ssize_t getposition(PyObject *patt, PyObject *positions, int i)
 {
-    PyObject *env = ((Pattern*)patt)->env;
-    PyObject *key = PyList_GetItem(env, i);
+    PyObject *key = env2val(patt, i);
     PyObject *val;
     if (key == NULL)
         return -1;
@@ -1130,7 +1094,7 @@ Pattern_Var (PyObject *cls, PyObject *name)
   PyObject *result = new_pattern(cls, 1, &p);
   if (result == NULL)
       return NULL;
-  setinst(p, IOpenCall, value2fenv(result, name));
+  setinst(p, IOpenCall, val2env(result, name));
   return result;
 }
 
@@ -1304,8 +1268,8 @@ capture_aux (PyObject *cls, PyObject *pat, int kind, PyObject *label)
     if (lc == l1) {  /* got whole pattern? */
         /* may use a IFullCapture instruction at its end */
         Instruction *p;
-        int labelid = getlabel(pat, label);
-        if (labelid == -1)
+        int labelid = val2env(pat, label);
+        if (labelid == ENV_ERROR)
             return NULL;
         result = new_pattern(cls, l1 + 1, &p);
         if (result) {
@@ -1316,8 +1280,8 @@ capture_aux (PyObject *cls, PyObject *pat, int kind, PyObject *label)
     else {  /* must use open-close pair */
         Instruction *op;
         Instruction *p;
-        int labelid = getlabel(pat, label);
-        if (labelid == -1)
+        int labelid = val2env(pat, label);
+        if (labelid == ENV_ERROR)
             return NULL;
         result = new_pattern(cls, 1 + l1 + 1, &op);
         if (result) {
@@ -1405,10 +1369,8 @@ typedef struct CapState {
   Capture *ocap;  /* (original) capture list */
   PyObject *values; /* List of captured values */
   PyObject *args; /* args of match call */
-  PyObject *env; /* env of pattern */
-  int ptop;  /* index of last argument to 'match' */
+  PyObject *patt; /* pattern */
   const char *s;  /* original string */
-  int valuecached;  /* value stored in cache slot */
 } CapState;
 
 int pushsubject(CapState *cs, Capture *c) {
@@ -1478,7 +1440,7 @@ static int stringcap(PyObject *lst, CapState *cs) {
     updatecache(cs, cs->cap->idx);
     c = lua_tolstring(cs->L, subscache(cs), &len);
     */
-    str = PyList_GetItem(cs->env, cs->cap->idx + 1 /* TODO */);
+    str = env2val(cs->patt, cs->cap->idx);
     PyString_AsStringAndSize(str, &c, &len);
     n = getstrcaps(cs, cps, 0) - 1;
     for (i = 0; i < len; i++) {
@@ -1601,7 +1563,7 @@ static int pushcapture (CapState *cs) {
         }
         case Cconst: {
             int arg = (cs->cap++)->idx;
-            PyObject *val = env2val(cs->env, arg);
+            PyObject *val = env2val(cs->patt, arg);
             if (val == NULL)
                 return 0;
             PyList_Append(cs->values, val);
@@ -1673,11 +1635,8 @@ static PyObject *getcaptures (PyObject *patt, Capture **capturep, const char *s,
         cs.ocap = cs.cap = capture;
         cs.values = result;
         cs.s = s;
-        cs.valuecached = 0;
-        /* TODO: remove */
-        cs.ptop = 0;
         cs.args = args;
-        cs.env = ((Pattern*)patt)->env;
+        cs.patt = patt;
         do { /* collect the values */
             if (!pushcapture(&cs)) {
                 Py_DECREF(result);
