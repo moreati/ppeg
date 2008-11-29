@@ -322,5 +322,19 @@ class TestSubclass(unittest.TestCase):
         T = self.T
         self.assert_(isinstance(T(1) ** 1, T))
 
+class TestCoercion(unittest.TestCase):
+    def testconcat(self):
+        self.assertEqual(P(1)+1, 1+P(1))
+        self.assertEqual(P("a")+1, "a"+P(1))
+        self.assertEqual(P(None)+1, None+P(1))
+    def testchoice(self):
+        self.assertEqual(P(1)|1, 1|P(1))
+        self.assertEqual(P("a")|1, "a"|P(1))
+        self.assertEqual(P(None)|1, None|P(1))
+    def testdiff(self):
+        self.assertEqual(P(1)-1, 1-P(1))
+        self.assertEqual(P("a")-1, "a"-P(1))
+        self.assertEqual(P(None)-1, None-P(1))
+
 if __name__ == '__main__':
     unittest.main()
