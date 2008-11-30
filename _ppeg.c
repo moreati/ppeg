@@ -461,9 +461,11 @@ static PyObject *env2val(PyObject *patt, Py_ssize_t idx) {
         return NULL;
 
     /* The index is 1 higher than the list position (see above) */
+    D1("Looking up index %d", idx);
     --idx;
     result = PySequence_GetItem(env, idx);
     /* Ambiguity here - we can return NULL from idx==0 or on error */
+    D1("Result is %p", result);
     return result;
 }
 
@@ -902,7 +904,8 @@ static PyObject *Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw) {
         PyObject *ruleid = PyList_GET_ITEM(r.ruleids, i);
         Py_ssize_t len = patsize(patt) + 1;
         /* Rule is only needed for error message */
-        checkrule(result, pos, pos + len, r.positions, ruleid);
+        if (checkrule(result, pos, pos + len, r.positions, ruleid) == -1)
+            goto err;
         pos += len;
     }
 
@@ -919,6 +922,7 @@ static PyObject *Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw) {
     for (i = 0; i < r.totalsize; i += sizei(p + i)) {
         if (p[i].i.code == IOpenCall) {
             int pos = getposition(result, r.positions, p[i].i.offset);
+            D2("Pos is %d, patching in %d", pos, pos-i);
             if (pos == -1 && PyErr_Occurred())
                 goto err;
             p[i].i.code = (p[target(p, i + 1)].i.code == IRet) ? IJmp : ICall;
