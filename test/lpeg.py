@@ -126,3 +126,13 @@ def test_word_exclusion():
     assert (letter ** 1 - (P.Match("for") + eos))("for") is None
 
 # Now we need capture support...
+def basiclookfor(p):
+    return P.Grammar(p | 1+P.Var(0))
+
+def caplookfor(p):
+    return basiclookfor(P.Cap(p))
+
+def test_initial_matches():
+    assert caplookfor(letter**1)("   4achou123...") == ["achou"]
+    a = (caplookfor(letter**1)**0)(" two words, one more  ")
+    assert a == ["two", "words", "one", "more"]

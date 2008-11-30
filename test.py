@@ -1,5 +1,5 @@
 from __future__ import with_statement
-import unittest
+from unittest import TestCase, main
 from _ppeg import Pattern as P
 import sys
 from cStringIO import StringIO
@@ -12,7 +12,7 @@ def stdout(fd):
     yield fd
     sys.stdout = old
 
-class TestBasic(unittest.TestCase):
+class TestBasic(TestCase):
     def testpat(self):
         p = P()
         self.assertEqual(type(p), P)
@@ -22,7 +22,7 @@ class TestBasic(unittest.TestCase):
             p.display()
         self.assertNotEqual(s.getvalue(), '')
 
-class TestEquivalents(unittest.TestCase):
+class TestEquivalents(TestCase):
     def testfail(self):
         self.assertEqual(P(None), P.Fail())
     def testany(self):
@@ -47,7 +47,7 @@ class TestEquivalents(unittest.TestCase):
         self.assertEqual(P(range="\0\255"), P.Range("\0\255"))
         self.assertEqual(P(range="ac"), P(range=u"ac"))
 
-class TestInitChecks(unittest.TestCase):
+class TestInitChecks(TestCase):
     def testtoomany(self):
         self.assertRaises(TypeError, P, 1, set="ab")
         self.assertRaises(TypeError, P, 1, range="ab")
@@ -66,7 +66,7 @@ class TestInitChecks(unittest.TestCase):
         self.assertRaises(ValueError, P, range=u"abc")
         self.assertRaises(ValueError, P, range="abc")
 
-class TestBuild(unittest.TestCase):
+class TestBuild(TestCase):
     def match(self, pat, items):
         self.assertEqual([i[0] for i in pat.dump()], items + ['end'])
     def testany(self):
@@ -93,7 +93,7 @@ class TestBuild(unittest.TestCase):
         self.assertEqual([p(s) for s in "abcdefgh"],
                 [None, 1, 1, None, 1, 1, 1, None])
 
-class TestConcat(unittest.TestCase):
+class TestConcat(TestCase):
     def testany(self):
         p1 = P.Any(2)
         p2 = P.Any(1) + P.Any(1)
@@ -139,7 +139,7 @@ class TestConcat(unittest.TestCase):
             p2 = p2 + P.Match('')
             self.assertEqual(p1.dump(), p2.dump())
 
-class TestAnd(unittest.TestCase):
+class TestAnd(TestCase):
     def match(self, pat, items):
         self.assertEqual([i[0] for i in pat.dump()], items + ['end'])
     def testtrue(self):
@@ -157,7 +157,7 @@ class TestAnd(unittest.TestCase):
         p = P.Any(1) + P.Match('ab')
         self.match(+p, ['choice', 'any', 'char', 'char', 'back_commit', 'fail'])
 
-class TestPow(unittest.TestCase):
+class TestPow(TestCase):
     # TODO: Add more tests!!!
     def match(self, pat, items):
         self.assertEqual([i[0] for i in pat.dump()], items + ['end'])
@@ -168,7 +168,7 @@ class TestPow(unittest.TestCase):
         self.assertEqual(p("boofoo"), 0)
         self.assertEqual(p("foofoo"), 6)
 
-class TestDiff(unittest.TestCase):
+class TestDiff(TestCase):
     def match(self, pat, items):
         self.assertEqual([i[0] for i in pat.dump()], items + ['end'])
     def testtrue(self):
@@ -181,7 +181,7 @@ class TestDiff(unittest.TestCase):
         p = P.Match('bc') - P.Match('ef')
         self.match(p, ['char', 'choice', 'char', 'failtwice', 'char', 'char'])
 
-class TestCapture(unittest.TestCase):
+class TestCapture(TestCase):
     def captype(self, n, p):
         return p.dump()[n][1] & 0xF
     def match(self, pat, items):
@@ -206,7 +206,7 @@ class TestCapture(unittest.TestCase):
         self.assertEqual(self.captype(1, P.CapT(P.Any(1))), 6)
         self.assertEqual(self.captype(1, P.CapS(P.Any(1))), 10)
 
-class TestMatch(unittest.TestCase):
+class TestMatch(TestCase):
     def testdummy(self):
         p = P.Dummy()
         self.assertEqual(p("aOmega"), 6)
@@ -229,7 +229,7 @@ class TestMatch(unittest.TestCase):
         self.assertEqual(p("jim"), None)
         self.assertEqual(p(""), None)
 
-class TestCaptureRet(unittest.TestCase):
+class TestCaptureRet(TestCase):
     def testpos(self):
         p = P.Any(3) + P.CapP() + P.Any(2) + P.CapP()
         self.assertEqual(p("abcdef"), [3, 5])
@@ -248,13 +248,24 @@ class TestCaptureRet(unittest.TestCase):
         self.assertEqual(p("abc"), ["1bc"])
         self.assertEqual(P.Cap(p)("abc"), ["abc", "1bc"])
 
-class TestGrammar(unittest.TestCase):
+class TestGrammar(TestCase):
     def testsimple(self):
         p = P.Any(1)
         pg = P.Grammar(p)
         self.assertEqual(pg("ab"), 1)
+    def testnamedrule(self):
+        p = P.Grammar(P.Var("a") + P.Var("a"), a=P(1))
+        self.assertEqual(p("ab"), 2)
+    def testexplicitstart(self):
+        p = P.Grammar(P.Var("a") + P.Var("a"), a=P(1), start="a")
+        self.assertEqual(p("ab"), 1)
+    def testpositionalrules(self):
+        p = P.Grammar(P.Var(1) + P.Var(2), P(1), P(1))
+        self.assertEqual(p("ab"), 2)
+    def testleftrecursion(self):
+        self.assertRaises(RuntimeError, P.Grammar, P.Var(0) + P(1))
 
-class TestDummy(unittest.TestCase):
+class TestDummy(TestCase):
     def testbuilddummy(self):
         patt = P.Grammar(P.Match("Omega") | P.Any(1) + P.Var(0))
         d = P.Dummy()
@@ -263,7 +274,7 @@ class TestDummy(unittest.TestCase):
 def lines(str):
     return [l.strip() for l in str.strip().splitlines()]
 
-class TestCaptureBug(unittest.TestCase):
+class TestCaptureBug(TestCase):
     def testbug001(self):
         p = P.Grammar(P.Match("Omega") | P.Any(1) + P.Var(0))
         p2 = P.CapC("hello") + p | P.CapC(12)
@@ -292,7 +303,7 @@ class TestCaptureBug(unittest.TestCase):
         for l1, l2 in zip(lines(result), lines(expected)):
             self.assertEqual(l1, l2)
 
-class TestSubclass(unittest.TestCase):
+class TestSubclass(TestCase):
     class T(P):
         pass
     def testcreation(self):
@@ -322,7 +333,7 @@ class TestSubclass(unittest.TestCase):
         T = self.T
         self.assert_(isinstance(T(1) ** 1, T))
 
-class TestCoercion(unittest.TestCase):
+class TestCoercion(TestCase):
     def testconcat(self):
         self.assertEqual(P(1)+1, 1+P(1))
         self.assertEqual(P("a")+1, "a"+P(1))
@@ -337,4 +348,4 @@ class TestCoercion(unittest.TestCase):
         self.assertEqual(P(None)-1, None-P(1))
 
 if __name__ == '__main__':
-    unittest.main()
+    main()
