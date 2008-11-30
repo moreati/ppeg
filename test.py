@@ -254,7 +254,7 @@ class TestGrammar(unittest.TestCase):
         pg = P.Grammar(p)
         self.assertEqual(pg("ab"), 1)
 
-class TestDummyP(unittest.TestCase):
+class TestDummy(unittest.TestCase):
     def testbuilddummy(self):
         patt = P.Grammar(P.Match("Omega") | P.Any(1) + P.Var(0))
         d = P.Dummy()
