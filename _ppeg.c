@@ -19,6 +19,15 @@
 #define D3(s,a,b,c)
 #endif
 
+static const char *const instruction_names[] = {
+    "any", "char", "set", "span", "ret", "end", "choice", "jmp", "call",
+    "open_call", "commit", "partial_commit", "back_commit", "failtwice",
+    "fail", "giveup", "func", "fullcapture", "emptycapture",
+    "emptycaptureidx", "opencapture", "closecapture", "closeruntime"
+};
+
+#define INAME(i) (instruction_names[i])
+
 /* }====================================================== */
 
 static const Instruction Dummy[] =
@@ -140,12 +149,9 @@ int ensure_patterns(PyObject **self, PyObject **other) {
     int selfpatt = PyObject_IsInstance(*self, pattern_cls);
     int otherpatt = PyObject_IsInstance(*other, pattern_cls);
 
-    D2("Checking for patterns: self=%d, other=%d", selfpatt, otherpatt);
-    D2("self refcount=%d, other refcnt=%d", (*self)->ob_refcnt, (*other)->ob_refcnt);
     if (selfpatt && otherpatt) {
         Py_INCREF(*self);
         Py_INCREF(*other);
-        D2("self refcount=%d, other refcnt=%d", (*self)->ob_refcnt, (*other)->ob_refcnt);
     }
     else if (selfpatt) {
         PyObject *cls = (PyObject*)((*self)->ob_type);
@@ -154,7 +160,6 @@ int ensure_patterns(PyObject **self, PyObject **other) {
             return -1;
         *other = result;
         Py_INCREF(*self);
-        D2("self refcount=%d, other refcnt=%d", (*self)->ob_refcnt, (*other)->ob_refcnt);
     }
     else { /* other is a pattern */
         PyObject *cls = (PyObject*)((*other)->ob_type);
@@ -163,9 +168,7 @@ int ensure_patterns(PyObject **self, PyObject **other) {
             return -1;
         *self = result;
         Py_INCREF(*other);
-        D2("self refcount=%d, other refcnt=%d", (*self)->ob_refcnt, (*other)->ob_refcnt);
     }
-    D("Survived ensure_patterns");
     return 0;
 }
 
@@ -480,154 +483,165 @@ static Py_ssize_t getposition(PyObject *patt, PyObject *positions, int i)
     return PyInt_AsSsize_t(val);
 }
 
-static int verify (PyObject *patt, Instruction *op, const Instruction *p,
-                   Instruction *e, PyObject *positions) {
-  static const char dummy[] = "";
-  Stack back[MAXBACK];
-  int backtop = 0;  /* point to first empty slot in back */
-  while (p != e) {
-    switch ((Opcode)p->i.code) {
-      case IRet: {
-        p = back[--backtop].p;
-        continue;
-      }
-      case IChoice: {
-        if (backtop >= MAXBACK)
-	{
-	  PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
-	  return -1;
-	}
-        back[backtop].p = dest(0, p);
-        back[backtop++].s = dummy;
-        p++;
-        continue;
-      }
-      case ICall: {
-        assert((p + 1)->i.code != IRet);  /* no tail call */
-        if (backtop >= MAXBACK)
-	{
-	  PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
-	  return -1;
-	}
-        back[backtop].s = NULL;
-        back[backtop++].p = p + 1;
-        goto dojmp;
-      }
-      case IOpenCall: {
-        int i;
-        if (positions == NULL)  /* grammar still not fixed? */
-          goto fail;  /* to be verified later */
-        for (i = 0; i < backtop; i++) {
-          if (back[i].s == NULL && back[i].p == p + 1) {
-            PyErr_SetString(PyExc_RuntimeError, "Rule is left recursive");
-            /* val2str(L, rule) */
-            return -1;
-          }
-        }
-        if (backtop >= MAXBACK)
-	{
-	  PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
-	  return -1;
-	}
-        back[backtop].s = NULL;
-        back[backtop++].p = p + 1;
-        p = op + getposition(patt, positions, p->i.offset);
-        continue;
-      }
-      case IBackCommit:
-      case ICommit: {
-        assert(backtop > 0 && p->i.offset > 0);
-        backtop--;
-        goto dojmp;
-      }
-      case IPartialCommit: {
-        assert(backtop > 0);
-        if (p->i.offset > 0) goto dojmp;  /* forward jump */
-        else {  /* loop will be detected when checking corresponding rule */
-          assert(positions != NULL);
-          backtop--;
-          p++;  /* just go on now */
-          continue;
-        }
-      }
-      case IAny:
-      case IChar:
-      case ISet: {
-        if (p->i.offset == 0) goto fail;
-        /* else goto dojmp; go through */
-      }
-      case IJmp: 
-      dojmp: {
-        p += p->i.offset;
-        continue;
-      }
-      case IFailTwice:  /* 'not' predicate */
-        goto fail;  /* body could have failed; try to backtrack it */
-      case IFail: {
-        if (p > op && (p - 1)->i.code == IBackCommit) {  /* 'and' predicate? */
-          p++;  /* pretend it succeeded and go ahead */
-          continue;
-        }
-        /* else failed: go through */
-      }
-      fail: { /* pattern failed: try to backtrack */
-        do {
-          if (backtop-- == 0)
-            return 1;  /* no more backtracking */
-        } while (back[backtop].s == NULL);
-        p = back[backtop].p;
-        continue;
-      }
-      case ISpan:
-      case IOpenCapture: case ICloseCapture:
-      case IEmptyCapture: case IEmptyCaptureIdx:
-      case IFullCapture: {
-        p += sizei(p);
-        continue;
-      }
-      case ICloseRunTime: {
-        goto fail;  /* be liberal in this case */
-      }
-      case IFunc: {
-        const char *r = (p+1)->f((p+2)->buff, dummy, dummy, dummy);
-        if (r == NULL) goto fail;
-        p += p->i.offset;
-        continue;
-      }
-      case IEnd:  /* cannot happen (should stop before it) */
-      default: assert(0); return 0;
+/* TODO: Fix this up */
+void set_error_id(PyObject *exc, const char *format, PyObject *id) {
+    PyObject *str = NULL;
+    char *s = "<invalid>";
+    if (id) {
+        str = PyObject_Str(id);
+        s = PyString_AS_STRING(str);
     }
-  }
-  assert(backtop == 0);
-  return 0;
+    PyErr_Format(exc, format, s);
+    Py_DECREF(str);
 }
 
-
-static void checkrule (PyObject *patt, Instruction *op, int from, int to,
-                       PyObject *positions) {
-  int i;
-  int lastopen = 0;  /* more recent OpenCall seen in the code */
-  for (i = from; i < to; i += sizei(op + i)) {
-    if (op[i].i.code == IPartialCommit && op[i].i.offset < 0) {  /* loop? */
-      int start = dest(op, i);
-      assert(op[start - 1].i.code == IChoice && dest(op, start - 1) == i + 1);
-      if (start <= lastopen) {  /* loop does contain an open call? */
-        if (!verify(patt, op, op + start, op + i, positions)) /* check body */
-#if 0
-          luaL_error(L, "possible infinite loop in %s", val2str(L, rule));
-#else
-	{
-	  PyErr_SetString(PyExc_RuntimeError, "Possible infinite loop");
-	  return;
-	}
-#endif
-      }
+/* Return: -1=error, 0=possible infinite loop, 1=valid */
+static int verify (PyObject *patt, Instruction *op, const Instruction *p,
+                   Instruction *e, PyObject *positions, PyObject *id) {
+    static const char dummy[] = "";
+    Stack back[MAXBACK];
+    int backtop = 0;  /* point to first empty slot in back */
+    while (p != e) {
+        switch ((Opcode)p->i.code) {
+            case IRet: {
+                p = back[--backtop].p;
+                continue;
+            }
+            case IChoice: {
+                if (backtop >= MAXBACK) {
+                    PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
+                    return -1;
+                }
+                back[backtop].p = dest(0, p);
+                back[backtop++].s = dummy;
+                p++;
+                continue;
+            }
+            case ICall: {
+                assert((p + 1)->i.code != IRet);  /* no tail call */
+                if (backtop >= MAXBACK) {
+                    PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
+                    return -1;
+                }
+                back[backtop].s = NULL;
+                back[backtop++].p = p + 1;
+                goto dojmp;
+            }
+            case IOpenCall: {
+                int i;
+                if (positions == NULL)  /* grammar still not fixed? */
+                    goto fail;  /* to be verified later */
+                for (i = 0; i < backtop; i++) {
+                    if (back[i].s == NULL && back[i].p == p + 1) {
+                        set_error_id(PyExc_RuntimeError, "Rule %s is left recursive", id);
+                        return -1;
+                    }
+                }
+                if (backtop >= MAXBACK) {
+                    PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
+                    return -1;
+                }
+                back[backtop].s = NULL;
+                back[backtop++].p = p + 1;
+                p = op + getposition(patt, positions, p->i.offset);
+                continue;
+            }
+            case IBackCommit:
+            case ICommit: {
+                assert(backtop > 0 && p->i.offset > 0);
+                backtop--;
+                goto dojmp;
+            }
+            case IPartialCommit: {
+                assert(backtop > 0);
+                if (p->i.offset > 0) goto dojmp;  /* forward jump */
+                else {  /* loop will be detected when checking corresponding rule */
+                    assert(positions != NULL);
+                    backtop--;
+                    p++;  /* just go on now */
+                    continue;
+                }
+            }
+            case IAny:
+            case IChar:
+            case ISet: {
+                if (p->i.offset == 0) goto fail;
+                /* else goto dojmp; go through */
+            }
+            case IJmp: 
+            dojmp: {
+                p += p->i.offset;
+                continue;
+            }
+            case IFailTwice:  /* 'not' predicate */
+                goto fail;  /* body could have failed; try to backtrack it */
+            case IFail: {
+                if (p > op && (p - 1)->i.code == IBackCommit) {  /* 'and' predicate? */
+                    p++;  /* pretend it succeeded and go ahead */
+                    continue;
+                }
+                /* else failed: go through */
+            }
+            fail: { /* pattern failed: try to backtrack */
+                do {
+                    if (backtop-- == 0)
+                        return 1;  /* no more backtracking */
+                } while (back[backtop].s == NULL);
+                p = back[backtop].p;
+                continue;
+            }
+            case ISpan:
+            case IOpenCapture: case ICloseCapture:
+            case IEmptyCapture: case IEmptyCaptureIdx:
+            case IFullCapture: {
+                p += sizei(p);
+                continue;
+            }
+            case ICloseRunTime: {
+                goto fail;  /* be liberal in this case */
+            }
+            case IFunc: {
+                const char *r = (p+1)->f((p+2)->buff, dummy, dummy, dummy);
+                if (r == NULL) goto fail;
+                p += p->i.offset;
+                continue;
+            }
+            case IEnd:  /* cannot happen (should stop before it) */
+            default: assert(0); return 0;
+        }
     }
-    else if (op[i].i.code == IOpenCall)
-      lastopen = i;
-  }
-  assert(op[i - 1].i.code == IRet);
-  verify(patt, op, op + from, op + to - 1, positions);
+    assert(backtop == 0);
+    return 0;
+}
+
+static int checkrule (PyObject *patt, int from, int to, PyObject *positions, PyObject *id) {
+    int i;
+    int lastopen = 0;  /* more recent OpenCall seen in the code */
+    Instruction *op = patprog(patt);
+    for (i = from; i < to; i += sizei(op + i)) {
+        if (op[i].i.code == IPartialCommit && op[i].i.offset < 0) {  /* loop? */
+            int start = dest(op, i);
+            assert(op[start - 1].i.code == IChoice && dest(op, start - 1) == i + 1);
+            if (start <= lastopen) {  /* loop does contain an open call? */
+                /* check body */
+                switch (verify(patt, op, op + start, op + i, positions, id)) {
+                    case 0:
+                        set_error_id(PyExc_RuntimeError, "Possible infinite loop in rule %s", id);
+                        /* Fall through */
+                    case -1:
+                        return -1;
+                    default: /* result is valid, so do nothing */
+                        break;
+                }
+            }
+        }
+        else if (op[i].i.code == IOpenCall)
+            lastopen = i;
+    }
+    assert(op[i - 1].i.code == IRet);
+    if (verify(patt, op, op + from, op + to - 1, positions, id) == -1)
+        return -1;
+    return 0;
 }
 
 /* **********************************************************************
@@ -739,140 +753,172 @@ static PyObject *Pattern_Var (PyObject *cls, PyObject *name) {
     return result;
 }
 
-static PyObject *
-Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
-{
-    PyObject *result = NULL;
-    PyObject *rules = NULL;
-    PyObject *positions = NULL;
-    int totalsize = 2; /* Include initial call and jump */
-    int n = 0; /* Number of rules */
+typedef int (*LoopFn) (PyObject *key, PyObject *val, void *extra);
+
+/* Loop over all arguments to a Python function. Note that args is always a
+ * tuple, and kw is always a dict. However, kw can be NULL, but args cannot.
+ */
+static int loop_args(PyObject *args, PyObject *kw, LoopFn handler, void *extra) {
+    PyObject *key;
+    PyObject *val;
     Py_ssize_t i;
-    Py_ssize_t nargs;
+    Py_ssize_t nargs = PyTuple_GET_SIZE(args);
+
+    for (i = 0; i < nargs; ++i) {
+        val = PyTuple_GET_ITEM(args, i);
+        key = PyInt_FromSsize_t(i);
+        if (key == NULL)
+            return -1;
+        if (handler(key, val, extra) == -1) {
+            Py_DECREF(key);
+            return -1;
+        }
+    }
+
+    i = 0;
+    while (kw && PyDict_Next(kw, &i, &key, &val)) {
+        if (handler(key, val, extra) == -1)
+            return -1;
+    }
+
+    return 0;
+}
+
+typedef struct RuleData {
+    Py_ssize_t totalsize;
+    PyObject *ruleids;
+    PyObject *rules;
+    PyObject *positions;
+} RuleData;
+
+static int init_rule_data(RuleData *r, Py_ssize_t totalsize) {
+    r->totalsize = totalsize;
+    r->rules = PyList_New(0);
+    if (r->rules == NULL)
+        return -1;
+    r->ruleids = PyList_New(0);
+    if (r->ruleids == NULL) {
+        Py_DECREF(r->rules);
+        return -1;
+    }
+    r->positions = PyDict_New();
+    if (r->positions == NULL) {
+        Py_DECREF(r->rules);
+        Py_DECREF(r->ruleids);
+        return -1;
+    }
+    return 0;
+}
+
+static void free_rule_data(RuleData *r) {
+    Py_XDECREF(r->rules);
+    Py_XDECREF(r->ruleids);
+    Py_XDECREF(r->positions);
+}
+
+static int add_rule(PyObject *key, PyObject *val, void *extra) {
+    RuleData *r = (RuleData *)extra;
+    PyObject *py_ts;
+
+    if (!PyObject_IsInstance(val, pattern_cls)) {
+        PyErr_SetString(PyExc_TypeError, "Grammar rule must be a pattern");
+        return -1;
+    }
+
+    py_ts = PyInt_FromSsize_t(r->totalsize);
+    if (py_ts == NULL)
+        return -1;
+    if (PyDict_SetItem(r->positions, key, py_ts)) {
+        Py_DECREF(py_ts);
+        return -1;
+    }
+    Py_DECREF(py_ts);
+    if (PyList_Append(r->ruleids, key) == -1)
+        return -1;
+    if (PyList_Append(r->rules, val) == -1)
+        return -1;
+
+    /* Add space for pattern + RET */
+    r->totalsize += patsize(val) + 1;
+    return 0;
+}
+
+static PyObject *Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw) {
+    PyObject *result = NULL;
+    Py_ssize_t i;
     Instruction *p;
     PyObject *init_rule = NULL;
     PyObject *initpos;
     Py_ssize_t pos;
-    PyObject *k;
-    PyObject *v;
+    RuleData r;
 
-    nargs = PySequence_Length(args);
-    rules = PyList_New(0);
-    positions = PyDict_New();
+    /* (1) Initialise working storage.
+     * Totalsize starts at 2, to cater for initial call and jump
+     */
+    if (init_rule_data(&r, 2) == -1)
+        return NULL;
 
-    if (nargs == -1 || rules == NULL || positions == NULL)
+    /* (2) Parse the start rule out of any keyword arguments, or default to 0 */
+    if (kw && (init_rule = PyDict_GetItemString(kw, "start")) != NULL) {
+        Py_INCREF(init_rule);
+        if (PyDict_DelItemString(kw, "start") == -1)
+            goto err;
+    }
+    else {
+        init_rule = PyInt_FromLong(0);
+        if (init_rule == NULL)
+            goto err;
+    }
+
+    /* (3) Loop through the arguments, adding each rule to the rule lists */
+    if (loop_args(args, kw, add_rule, &r) == -1)
         goto err;
 
-    /* Accumulate the list of rules and a mapping id->position */
-    for (i = 0; i < nargs; ++i) {
-        PyObject *patt = PySequence_GetItem(args, i);
-        Py_ssize_t l;
-        PyObject *py_ts;
-        PyObject *py_i;
-        if (!PyObject_IsSubclass(pattern_cls, cls)) {
-            if (i == 0) { /* initial rule */
-                init_rule = patt;
-                Py_INCREF(init_rule);
-            }
-            else {
-                PyErr_SetString(PyExc_TypeError, "Grammar rule must be a pattern");
-                Py_DECREF(patt);
-                goto err;
-            }
-        }
-        l = patsize(patt) + 1; /* Space for pattern + RET */
-        /* TODO: Error checking */
-        py_ts = PyInt_FromSsize_t(totalsize);
-        py_i = PyInt_FromSsize_t(i);
-        if (py_ts == NULL || py_i == NULL) {
-            Py_DECREF(patt);
-            Py_XDECREF(py_ts);
-            Py_XDECREF(py_i);
-            goto err;
-        }
-        PyDict_SetItem(positions, py_i, py_ts);
-        Py_DECREF(py_ts);
-        Py_DECREF(py_i);
-        PyList_Append(rules, patt);
-        totalsize += l;
-        ++n;
-        Py_DECREF(patt);
-    }
-    pos = 0;
-    while (kw && PyDict_Next(kw, &pos, &k, &v)) {
-        PyObject *patt = v;
-        Py_ssize_t l;
-        PyObject *py_ts;
-        if (!PyObject_IsInstance(patt, cls)) { /* TODO: Pattern, rather than cls? */
-            PyErr_SetString(PyExc_TypeError, "Grammar rule must be a pattern");
-            goto err;
-        }
-        l = patsize(patt) + 1; /* Space for pattern + RET */
-        /* TODO: Error checking */
-        py_ts = PyInt_FromSsize_t(totalsize);
-        if (py_ts == NULL) {
-            goto err;
-        }
-        PyDict_SetItem(positions, k, py_ts);
-        Py_DECREF(py_ts);
-        PyList_Append(rules, patt);
-        totalsize += l;
-        ++n;
-    }
-
-    if (n == 0) {
+    /* Check that there was at least 1 rule */
+    if (PyList_GET_SIZE(r.rules) == 0) {
         PyErr_SetString(PyExc_ValueError, "Empty grammar");
         goto err;
     }
 
-    result = new_patt(cls, totalsize);
+    /* (4) Build the pattern */
+    result = new_patt(cls, r.totalsize);
     if (result == NULL)
-        goto err;
-    nargs = PySequence_Length(rules);
-    if (nargs == -1)
         goto err;
     p = patprog(result);
     ++p; /* Leave space for call */
-    setinst(p++, IJmp, totalsize - 1);  /* after call, jumps to the end */
+    setinst(p++, IJmp, r.totalsize - 1);  /* after call, jumps to the end */
 
-    for (i = 0; i < nargs; ++i) {
-        PyObject *patt = PySequence_GetItem(rules, i);
-        if (patt == NULL)
-            goto err;
+    for (i = 0; i < PyList_GET_SIZE(r.rules); ++i) {
+        PyObject *patt = PyList_GET_ITEM(r.rules, i);
         p += addpatt(result, p, patt);
         setinst(p++, IRet, 0);
     }
-    p -= totalsize;  /* back to first position */
-    totalsize = 2;  /* go through each rule's position */
-    for (i = 0; i < nargs; i++) {  /* check all rules */
-        PyObject *patt = PySequence_GetItem(rules, i);
-        Py_ssize_t l;
-        if (patt == NULL)
-            goto err;
-        l = patsize(patt) + 1;
+    /* Go back to first position */
+    p = patprog(result);
+
+    /* (5) Check the patterns */
+    for (pos = 2, i = 0; i < PyList_GET_SIZE(r.rules); i++) {  /* check all rules */
+        PyObject *patt = PyList_GET_ITEM(r.rules, i);
+        PyObject *ruleid = PyList_GET_ITEM(r.ruleids, i);
+        Py_ssize_t len = patsize(patt) + 1;
         /* Rule is only needed for error message */
-#if 0
-        checkrule(patt, p, totalsize, totalsize + l, positions);
-#endif
-        totalsize += l;
+        checkrule(result, pos, pos + len, r.positions, ruleid);
+        pos += len;
     }
 
-    /* Get the initial rule */
-    if (init_rule == NULL)
-        init_rule = PyInt_FromLong(0);
-    initpos = PyDict_GetItem(positions, init_rule);
+    /* (6) Check that the initial rule is valid, and set up the call */
+    initpos = PyDict_GetItem(r.positions, init_rule);
     if (initpos == NULL) {
         PyErr_SetString(PyExc_ValueError, "Initial rule is not defined in the grammar");
         goto err;
     }
-    pos = PyInt_AsSsize_t(initpos);
+    pos = PyInt_AS_LONG(initpos);
     setinst(p, ICall, pos);  /* first instruction calls initial rule */
 
-    /* correct calls */
-    for (i = 0; i < totalsize; i += sizei(p + i)) {
+    /* (7) Correct any open calls (note tail call optimisation here) */
+    for (i = 0; i < r.totalsize; i += sizei(p + i)) {
         if (p[i].i.code == IOpenCall) {
-            /* TODO - definitely wrong (result isn't the right arg) */
-            int pos = getposition(result, positions, p[i].i.offset);
+            int pos = getposition(result, r.positions, p[i].i.offset);
             if (pos == -1 && PyErr_Occurred())
                 goto err;
             p[i].i.code = (p[target(p, i + 1)].i.code == IRet) ? IJmp : ICall;
@@ -882,14 +928,12 @@ Pattern_Grammar (PyObject *cls, PyObject *args, PyObject *kw)
     optimizejumps(p);
 
     Py_DECREF(init_rule);
-    Py_DECREF(rules);
-    Py_DECREF(positions);
+    free_rule_data(&r);
     return result;
 
 err:
     Py_XDECREF(init_rule);
-    Py_XDECREF(positions);
-    Py_XDECREF(rules);
+    free_rule_data(&r);
     Py_XDECREF(result);
     return NULL;
 }
@@ -914,18 +958,12 @@ static PyObject *Pattern_display(Pattern* self) {
 static PyObject *Pattern_dump(Pattern *self) {
     PyObject *result = PyList_New(0);
     Instruction *p = patprog(self);
-    static const char *const names[] = {
-        "any", "char", "set", "span", "ret", "end", "choice", "jmp", "call",
-        "open_call", "commit", "partial_commit", "back_commit", "failtwice",
-        "fail", "giveup", "func", "fullcapture", "emptycapture",
-        "emptycaptureidx", "opencapture", "closecapture", "closeruntime"
-    };
 
     if (result == NULL)
         return NULL;
 
     for (;;) {
-        PyObject *item = Py_BuildValue("(sii)", names[p->i.code],
+        PyObject *item = Py_BuildValue("(sii)", INAME(p->i.code),
                 p->i.aux, p->i.offset);
         if (item == NULL) {
             Py_DECREF(result);
@@ -956,11 +994,9 @@ static PyObject *Pattern_richcompare(PyObject *self, PyObject *other, int op) {
 
     /* Two patterns are equal if their code and length are equal */
     if (patlen(self) != patlen(other)) {
-        D2("Lengths differ: %d vs %d", patlen(self), patlen(other));
         goto ret_ne;
     }
     if (memcmp(patprog(self), patprog(other), patlen(self)) != 0) {
-        D("Instructions differ");
         goto ret_ne;
     }
 
@@ -993,7 +1029,6 @@ PyObject *Pattern_concat(PyObject *self, PyObject *other) {
 
     if (isfail(p1) || issucc(p2)) {
         /* fail * x == fail; x * true == x */
-        D1("fail+x or x+true, self refcount is %d", self->ob_refcnt);
         Py_DECREF(other);
         return self;
     }
@@ -1197,10 +1232,15 @@ static PyObject *repeats(PyObject *patt, Py_ssize_t n) {
      * TODO: Fix this when implementing grammars.
      */
     p = patprog(patt);
-    if (!verify(result, p, p, p + len, NULL)) {
-        PyErr_SetString(PyExc_ValueError, "Loop body may accept empty string");
-        Py_DECREF(result);
-        return NULL;
+    switch (verify(result, p, p, p + len, NULL, NULL)) {
+        case 0:
+            PyErr_SetString(PyExc_ValueError, "Loop body may accept empty string");
+            /* Fall through */
+        case -1:
+            Py_DECREF(result);
+            return NULL;
+        default: /* result is valid, so do nothing */
+            break;
     }
 
     p = patprog(result);
@@ -1306,9 +1346,8 @@ static PyObject *auxnew (PyObject *self, int *size, int extra, Instruction **ppt
     return result;
 }
 
-static PyObject *
-basic_union (PyObject *self, PyObject *other, Instruction *p1, int l1, int *size, CharsetTag *st2)
-{
+static PyObject *basic_union (PyObject *self, PyObject *other,
+        Instruction *p1, int l1, int *size, CharsetTag *st2) {
     PyObject *result;
     CharsetTag st1;
     tocharset(p1, &st1);
@@ -1407,24 +1446,19 @@ static PyObject *Pattern_or (PyObject *self, PyObject *other) {
         return Py_NotImplemented;
     }
 
-    D2("Pattern_or: self refcount=%d, other refcnt=%d", self->ob_refcnt, other->ob_refcnt);
 
     if (isfail(patprog(self))) {
-        D("fail / a");
         Py_DECREF(self);
         return other; /* fail / a == a */
     }
 
     if (isfail(patprog(other)) || issucc(patprog(self))) {
-        D("a / fail or true / a");
         Py_DECREF(other);
         return self; /* a / fail == a; true / a == true */
     }
 
-    D("complex case");
     tocharset(patprog(other), &st2);
     result = separateparts(self, other, patprog(self), patsize(self), &size, &st2);
-    D("Survived");
     Py_DECREF(self);
     Py_DECREF(other);
     return result;
@@ -1483,12 +1517,10 @@ static PyObject *Pattern_CaptureSub(PyObject *cls, PyObject *pat) {
 static PyObject *Pattern_divide(PyObject *self, PyObject *other) {
     PyObject *cls;
     PyObject *result = NULL;
-    D("Starting divide");
 
     cls = PyObject_Type(self);
     if (cls == NULL)
         return NULL;
-    D("Got type");
 
     if (PyString_Check(other))
         result = capture_aux(((PyObject*)(self->ob_type)), self, Cstring, other);
@@ -1654,29 +1686,24 @@ static void substcap(PyObject *lst, CapState *cs) {
     const char *curr = cs->cap->s;
     PyObject *str;
     if (isfullcap(cs->cap)) {
-        D("Substcap: isfullcap");
         /* Keep original text */
         str = PyString_FromStringAndSize(curr, cs->cap->siz - 1);
         PyList_Append(lst, str);
         Py_DECREF(str);
     }
     else {
-        D("Substcap: !isfullcap");
         cs->cap++;
         while (!isclosecap(cs->cap)) {
             const char *next = cs->cap->s;
             str = PyString_FromStringAndSize(curr, next - curr);
-            D1("(1) Got string '%s'", PyString_AsString(str));
             PyList_Append(lst, str);
             Py_DECREF(str);
-            D("Doing addonestring");
             if (addonestring(lst, cs, "replacement") == 0) /* No capture value? */
                 curr = next;
             else
                 curr = closeaddr(cs->cap - 1); /* Continue after match */
         }
         str = PyString_FromStringAndSize(curr, cs->cap->s - curr); /* Add last piece of text */
-        D1("(2) Got string '%s'", PyString_AsString(str));
         PyList_Append(lst, str);
         Py_DECREF(str);
     }
@@ -1684,7 +1711,6 @@ static void substcap(PyObject *lst, CapState *cs) {
 }
 
 static int addonestring (PyObject *lst, CapState *cs, const char *what) {
-    D("Addonestring");
     switch (captype(cs->cap)) {
         case Cstring:
             /* Add capture directly to buffer */
@@ -1698,7 +1724,6 @@ static int addonestring (PyObject *lst, CapState *cs, const char *what) {
             int n = pushcapture(cs);
             Py_ssize_t len = PyList_Size(cs->values);
             PyObject *val;
-            D2("Default: n=%d len=%d", n, len);
             /* Only the first result */
             val = PyList_GetItem(cs->values, len - n);
             if (!PyString_Check(val)) {
@@ -1707,10 +1732,8 @@ static int addonestring (PyObject *lst, CapState *cs, const char *what) {
                 Py_DECREF(val);
                 val = s;
             }
-            D1("Got value %p", val);
             PyList_Append(lst, val);
             /* Drop the results */
-            D("Dropping results");
             PyList_SetSlice(cs->values, len - n, len, NULL);
             return n;
         }
@@ -1773,9 +1796,7 @@ static int pushcapture (CapState *cs) {
             PyObject *lst = PyList_New(0);
             PyObject *str = PyString_FromString("");
             PyObject *result;
-            D("Starting substcap");
             substcap(lst, cs);
-            D("Ending substcap");
             result = PyObject_CallMethod(str, "join", "(O)", lst);
             PyList_Append(cs->values, result);
             Py_DECREF(result);
