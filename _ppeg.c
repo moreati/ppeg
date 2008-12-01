@@ -1576,12 +1576,12 @@ static PyObject *Pattern_CaptureConst(PyObject *cls, PyObject *val) {
  * **********************************************************************
  */
 typedef struct CapState {
-  Capture *cap;  /* current capture */
-  Capture *ocap;  /* (original) capture list */
-  PyObject *values; /* List of captured values */
-  PyObject *args; /* args of match call */
-  PyObject *patt; /* pattern */
-  const char *s;  /* original string */
+    Capture *cap;  /* current capture */
+    Capture *ocap;  /* (original) capture list */
+    PyObject *values; /* List of captured values */
+    PyObject *args; /* args of match call */
+    PyObject *patt; /* pattern */
+    const char *s;  /* original string */
 } CapState;
 
 int pushsubject(CapState *cs, Capture *c) {
@@ -1601,14 +1601,21 @@ static int pushallvalues (CapState *cs, int addextra) {
     Capture *co = cs->cap;
     int n = 0;
     if (isfullcap(cs->cap++)) {
-        pushsubject(cs, co); /* Push whole match */
+        /* Push whole match */
+        if (pushsubject(cs, co) == -1)
+            return -1;
         return 1;
     }
     while (!isclosecap(cs->cap))
         n += pushcapture(cs);
     if (addextra || n == 0) {
         PyObject *str = PyString_FromStringAndSize(co->s, cs->cap->s - co->s);
-        PyList_Append(cs->values, str);
+        if (str == NULL)
+            return -1;
+        if (PyList_Append(cs->values, str) == -1) {
+            Py_DECREF(str);
+            return -1;
+        }
         Py_DECREF(str);
         ++n;
     }
@@ -1617,26 +1624,26 @@ static int pushallvalues (CapState *cs, int addextra) {
 }
 
 static int getstrcaps (CapState *cs, StrAux *cps, int n) {
-  int k = n++;
-  cps[k].isstring = 1;
-  cps[k].u.s.s = cs->cap->s;
-  if (!isfullcap(cs->cap++)) {
-    while (!isclosecap(cs->cap)) {
-      if (n >= MAXSTRCAPS)  /* too many captures? */
-        cs->cap = nextcap(cs->cap);  /* skip it */
-      else if (captype(cs->cap) == Csimple)
-        n = getstrcaps(cs, cps, n);
-      else {
-        cps[n].isstring = 0;
-        cps[n].u.cp = cs->cap;
-        cs->cap = nextcap(cs->cap);
-        n++;
-      }
+    int k = n++;
+    cps[k].isstring = 1;
+    cps[k].u.s.s = cs->cap->s;
+    if (!isfullcap(cs->cap++)) {
+        while (!isclosecap(cs->cap)) {
+            if (n >= MAXSTRCAPS)  /* too many captures? */
+                cs->cap = nextcap(cs->cap);  /* skip it */
+            else if (captype(cs->cap) == Csimple)
+                n = getstrcaps(cs, cps, n);
+            else {
+                cps[n].isstring = 0;
+                cps[n].u.cp = cs->cap;
+                cs->cap = nextcap(cs->cap);
+                n++;
+            }
+        }
+        cs->cap++;  /* skip close */
     }
-    cs->cap++;  /* skip close */
-  }
-  cps[k].u.s.e = closeaddr(cs->cap - 1);
-  return n;
+    cps[k].u.s.e = closeaddr(cs->cap - 1);
+    return n;
 }
 
 static int addonestring (PyObject *lst, CapState *cs, const char *what);
@@ -1686,7 +1693,7 @@ static int stringcap(PyObject *lst, CapState *cs) {
     return 0;
 }
 
-static void substcap(PyObject *lst, CapState *cs) {
+static int substcap(PyObject *lst, CapState *cs) {
     const char *curr = cs->cap->s;
     PyObject *str;
     if (isfullcap(cs->cap)) {
@@ -1712,6 +1719,7 @@ static void substcap(PyObject *lst, CapState *cs) {
         Py_DECREF(str);
     }
     cs->cap++; /* Go to next capture */
+    return 0;
 }
 
 static int addonestring (PyObject *lst, CapState *cs, const char *what) {
@@ -1719,12 +1727,15 @@ static int addonestring (PyObject *lst, CapState *cs, const char *what) {
         case Cstring:
             /* Add capture directly to buffer */
             if (stringcap(lst, cs) == -1)
-                return 0;
+                return -1;
             return 1;
         case Csubst:
-            substcap(lst, cs); /* Add capture directly to buffer */
+            /* Add capture directly to buffer */
+            if (substcap(lst, cs) == -1)
+                return -1;
             return 1;
         default: {
+            /* TODO: using cs->values as temp storage! */
             int n = pushcapture(cs);
             Py_ssize_t len = PyList_Size(cs->values);
             PyObject *val;
@@ -1739,7 +1750,7 @@ static int addonestring (PyObject *lst, CapState *cs, const char *what) {
             PyList_Append(lst, val);
             /* Drop the results */
             PyList_SetSlice(cs->values, len - n, len, NULL);
-            return n;
+            return n; /* ??? 1, surely? */
         }
     }
 }
@@ -1750,8 +1761,11 @@ static int pushcapture (CapState *cs) {
             long pos = cs->cap->s - cs->s;
             PyObject *val = PyInt_FromLong(pos);
             if (val == NULL)
-                return 0;
-            PyList_Append(cs->values, val);
+                return -1;
+            if (PyList_Append(cs->values, val) == -1) {
+                Py_DECREF(val);
+                return -1;
+            }
             cs->cap++;
             return 1;
         }
@@ -1759,20 +1773,30 @@ static int pushcapture (CapState *cs) {
             int arg = (cs->cap++)->idx;
             PyObject *val = PySequence_GetItem(cs->args, arg);
             if (val == NULL)
-                return 0;
-            PyList_Append(cs->values, val);
+                return -1;
+            if (PyList_Append(cs->values, val) == -1) {
+                Py_DECREF(val);
+                return -1;
+            }
             return 1;
         }
         case Cconst: {
             int arg = (cs->cap++)->idx;
             PyObject *val = env2val(cs->patt, arg);
+            /* What if arg == 0? */
             if (val == NULL)
-                return 0;
-            PyList_Append(cs->values, val);
+                return -1;
+            if (PyList_Append(cs->values, val) == -1) {
+                Py_DECREF(val);
+                return -1;
+            }
+            Py_DECREF(val);
             return 1;
         }
         case Csimple: {
             int k = pushallvalues(cs, 1);
+            if (k == -1)
+                return -1;
             if (k > 1) {
                 /* Whole match is first result, so move the last element back
                  * to the start of the group we've just pushed
@@ -1782,7 +1806,7 @@ static int pushcapture (CapState *cs) {
                 PySequence_DelItem(cs->values, -1);
                 Py_DECREF(top);
             }
-            return 1;
+            return k;
         }
         case Cstring: {
             PyObject *lst = PyList_New(0);
@@ -1817,7 +1841,7 @@ static int pushcapture (CapState *cs) {
             }
         }
         default: {
-            return 1;
+            return 0;
         }
     }
 }
@@ -1838,11 +1862,12 @@ static PyObject *getcaptures (PyObject *patt, Capture **capturep, const char *s,
         cs.args = args;
         cs.patt = patt;
         do { /* collect the values */
-            if (!pushcapture(&cs)) {
+            int count = pushcapture(&cs);
+            if (count == -1) {
                 Py_DECREF(result);
                 return NULL;
             }
-            n = 1; /* TODO: ???? */
+            n += count;
         } while (!isclosecap(cs.cap));
     }
     if (n == 0) { /* No capture values */
