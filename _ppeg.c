@@ -1,5 +1,6 @@
 /* vim: set et: */
 #include <Python.h>
+#include <structmember.h>
 /* Override stdio printing */
 #define printf PySys_WriteStdout
 #include "lpeg.c"
@@ -46,9 +47,11 @@ static const Instruction Dummy[] =
     {{IRet,0,0}},
 };
 
-/* Forward declaration of the Pattern type */
+/* Forward declaration of the Pattern and Match types */
 static PyTypeObject PatternType;
+static PyTypeObject MatchType;
 #define pattern_cls ((PyObject *)(&PatternType))
+#define match_cls ((PyObject *)(&MatchType))
 
 typedef struct {
     PyObject_HEAD
@@ -61,6 +64,13 @@ typedef struct {
      */
     PyObject *env;
 } Pattern;
+
+typedef struct {
+    PyObject_HEAD
+    /* Type-specific fields go here. */
+    long pos;
+    PyObject *captures;
+} Match;
 
 /* Accessors - object must be of the correct type!
  * These are lvalues, and can be used as the target of an assignment.
@@ -227,6 +237,7 @@ Py_ssize_t addpatt (PyObject *self, Instruction *p, PyObject *other)
  * Object administrative functions - memory management
  * **********************************************************************
  */
+/* Pattern */
 static void Pattern_dealloc(Pattern* self)
 {
     PyMem_Del(self->prog);
@@ -252,6 +263,37 @@ static int Pattern_traverse(Pattern *self, visitproc visit, void *arg) {
 static int Pattern_clear(Pattern *self) {
     Py_CLEAR(self->env);
     return 0;
+}
+
+/* Match */
+static void Match_dealloc(Match* self)
+{
+    Py_XDECREF(self->captures);
+    self->ob_type->tp_free((PyObject*)self);
+}
+
+static PyObject *Match_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
+{
+    PyObject *self = type->tp_alloc(type, 0);
+    if (self) {
+        ((Match*)self)->pos = -1;
+        ((Match*)self)->captures = NULL;
+    }
+    return self;
+}
+
+static int Match_traverse(Match *self, visitproc visit, void *arg) {
+    Py_VISIT(self->captures);
+    return 0;
+}
+
+static int Match_clear(Match *self) {
+    Py_CLEAR(self->captures);
+    return 0;
+}
+
+static int Match_nonzero(Match *self) {
+    return (self->pos != -1);
 }
 
 /* **********************************************************************
@@ -1896,6 +1938,7 @@ Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
     Capture *cc = malloc(IMAXCAPTURES * sizeof(Capture));
     const char *e;
     PyObject *result;
+    Match *res;
 
 #if 0
     if (!PyArg_ParseTuple(args, "s#", &str, &len))
@@ -1906,10 +1949,16 @@ Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
         return NULL;
 #endif
 
+    result = PyObject_CallFunction(match_cls, "");
+    if (result == NULL)
+        return NULL;
+
+    res = (Match *)result;
     e = match("", str, str + len, self->prog, cc, 0);
     if (e == 0)
-        Py_RETURN_NONE;
-    result = getcaptures((PyObject*)self, &cc, str, e, args);
+        return result;
+    res->pos = e - str;
+    res->captures = getcaptures((PyObject*)self, &cc, str, e, args);
     free(cc);
     return result;
 }
@@ -2063,6 +2112,99 @@ static PyTypeObject PatternType = {
     Pattern_new,               /* tp_new */
 };
 
+static PyNumberMethods Match_as_number = {
+    0, /* binaryfunc nb_add */
+    0,   /* binaryfunc nb_subtract */
+    0, /* binaryfunc nb_multiply */
+    0, /* binaryfunc nb_divide */
+    0, /* binaryfunc nb_remainder */
+    0, /* binaryfunc nb_divmod */
+    0, /* ternaryfunc nb_power */
+    0, /* unaryfunc nb_negative */
+    0, /* unaryfunc nb_positive */
+    0, /* unaryfunc nb_absolute */
+    (inquiry)Match_nonzero, /* inquiry nb_nonzero */
+    0, /* unaryfunc nb_invert */
+    0, /* binaryfunc nb_lshift */
+    0, /* binaryfunc nb_rshift */
+    0, /* binaryfunc nb_and */
+    0, /* binaryfunc nb_xor */
+    0, /* binaryfunc nb_or */
+    0, /* coercion nb_coerce */
+    0, /* unaryfunc nb_int */
+    0, /* unaryfunc nb_long */
+    0, /* unaryfunc nb_float */
+    0, /* unaryfunc nb_oct */
+    0, /* unaryfunc nb_hex */
+    0, /* binaryfunc nb_inplace_add */
+    0, /* binaryfunc nb_inplace_subtract */
+    0, /* binaryfunc nb_inplace_multiply */
+    0, /* binaryfunc nb_inplace_divide */
+    0, /* binaryfunc nb_inplace_remainder */
+    0, /* ternaryfunc nb_inplace_power */
+    0, /* binaryfunc nb_inplace_lshift */
+    0, /* binaryfunc nb_inplace_rshift */
+    0, /* binaryfunc nb_inplace_and */
+    0, /* binaryfunc nb_inplace_xor */
+    0, /* binaryfunc nb_inplace_or */
+    0, /* binaryfunc nb_floor_divide */
+    0, /* binaryfunc nb_true_divide */
+    0, /* binaryfunc nb_inplace_floor_divide */
+    0, /* binaryfunc nb_inplace_true_divide */
+    0, /* unaryfunc nb_index */
+};
+
+static PyMemberDef Match_members[] = {
+    {"pos", T_LONG, offsetof(Match, pos), READONLY},
+    {"captures", T_OBJECT, offsetof(Match, captures), READONLY},
+    {0}
+};
+
+static PyTypeObject MatchType = {
+    PyObject_HEAD_INIT(NULL)
+    0,                         /* ob_size */
+    "_ppeg.Match",             /* tp_name */
+    sizeof(Match),             /* tp_basicsize */
+    0,                         /* tp_itemsize */
+    (destructor)Match_dealloc,
+                               /* tp_dealloc */
+    0,                         /* tp_print */
+    0,                         /* tp_getattr */
+    0,                         /* tp_setattr */
+    0,                         /* tp_compare */
+    0,                         /* tp_repr */
+    &Match_as_number,          /* tp_as_number */
+    0,                         /* tp_as_sequence */
+    0,                         /* tp_as_mapping */
+    0,                         /* tp_hash */
+    0,                         /* tp_call */
+    0,                         /* tp_str */
+    0,                         /* tp_getattro */
+    0,                         /* tp_setattro */
+    0,                         /* tp_as_buffer */
+    Py_TPFLAGS_DEFAULT | Py_TPFLAGS_BASETYPE | Py_TPFLAGS_HAVE_GC,
+                               /* tp_flags*/
+    "Match object",            /* tp_doc */
+    (traverseproc)Match_traverse,
+                               /* tp_traverse */
+    (inquiry)Match_clear,      /* tp_clear */
+    0,                         /* tp_richcompare */
+    0,                         /* tp_weaklistoffset */
+    0,                         /* tp_iter */
+    0,                         /* tp_iternext */
+    0,                         /* tp_methods */
+    Match_members,             /* tp_members */
+    0,                         /* tp_getset */
+    0,                         /* tp_base */
+    0,                         /* tp_dict */
+    0,                         /* tp_descr_get */
+    0,                         /* tp_descr_set */
+    0,                         /* tp_dictoffset */
+    0,                         /* tp_init */
+    0,                         /* tp_alloc */
+    Match_new,                 /* tp_new */
+};
+
 static PyMethodDef _ppeg_methods[] = {
     {NULL}  /* Sentinel */
 };
@@ -2076,6 +2218,9 @@ init_ppeg(void)
     PyObject* m;
 
     if (PyType_Ready(&PatternType) < 0)
+        return;
+
+    if (PyType_Ready(&MatchType) < 0)
         return;
 
     m = Py_InitModule3("_ppeg", _ppeg_methods, "PEG parser module.");
