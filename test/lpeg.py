@@ -18,57 +18,55 @@ def test_type():
 # Tests for some basic optimizations
 def test_basic_opt_choice():
     p = P.Fail() | P.Match("a")
-    assert p("a") == 1
+    assert p("a").pos == 1
     p = P() | P.Match("a")
-    assert p("a") == 0
+    assert p("a").pos == 0
     p = P.Match("a") | P.Fail()
-    assert p("b") == None
+    assert not p("b")
     p = P.Match("a") | P()
-    assert p("b") == 0
+    assert p("b").pos == 0
 
 def test_basic_opt_concat():
     p = P.Fail() + P.Match("a")
-    assert p("a") == None
+    assert not p("a")
     p = P() + P.Match("a")
-    assert p("a") == 1
+    assert p("a").pos == 1
     p = P.Match("a") + P.Fail()
-    assert p("a") == None
+    assert not p("a")
     p = P.Match("a") + P()
-    assert p("a") == 1
+    assert p("a").pos == 1
 
 def test_basic_opt_assert():
     p = +P.Fail() + P.Match("a")
-    assert p("a") == None
+    assert not p("a")
     p = +P() + P.Match("a")
-    assert p("a") == 1
+    assert p("a").pos == 1
     p = P.Match("a") + +P.Fail()
-    assert p("a") == None
+    assert not p("a")
     p = P.Match("a") + +P()
-    assert p("a") == 1
+    assert p("a").pos == 1
 
 # Locale tests not included yet
 
-# Ugly "is (not) None", because 0 is a valid match result, but is false
-# Consider changing the API...
 def test_match_any():
-    assert P.Any(3)("aaaa") is not None
-    assert P.Any(4)("aaaa") is not None
-    assert P.Any(5)("aaaa") is None
-    assert P.Any(-3)("aa") is not None
-    assert P.Any(-3)("aaa") is None
-    assert P.Any(-3)("aaaa") is None
-    assert P.Any(-4)("aaaa") is None
-    assert P.Any(-5)("aaaa") is not None
+    assert P.Any(3)("aaaa")
+    assert P.Any(4)("aaaa")
+    assert not P.Any(5)("aaaa")
+    assert P.Any(-3)("aa")
+    assert not P.Any(-3)("aaa")
+    assert not P.Any(-3)("aaaa")
+    assert not P.Any(-4)("aaaa")
+    assert P.Any(-5)("aaaa")
 
 def test_match_match():
-    assert P.Match("a")("alo") == 1
-    assert P.Match("al")("alo") == 2
-    assert P.Match("alu")("alo") is None
-    assert P()("") == 0
+    assert P.Match("a")("alo").pos == 1
+    assert P.Match("al")("alo").pos == 2
+    assert not P.Match("alu")("alo")
+    assert P()("").pos == 0
 
 # Character sets
 def cs2str(c):
-    return "".join(chr(ch) for ch in range(256) if c(chr(ch)) is not None)
+    return "".join(chr(ch) for ch in range(256) if c(chr(ch)))
 def eqcharset(c1, c2):
     assert cs2str(c1) == cs2str(c2)
 
@@ -96,34 +94,34 @@ def test_charset():
 word = alpha ** 1 + (P.Any(1) - alpha) ** 0
 
 def test_word():
-    assert (word ** 0 + P.Any(-1))("alo alo") is not None
-    assert (word ** 1 + P.Any(-1))("alo alo") is not None
-    assert (word ** 2 + P.Any(-1))("alo alo") is not None
-    assert (word ** 3 + P.Any(-1))("alo alo") is None
-    assert (word ** -1 + P.Any(-1))("alo alo") is None
-    assert (word ** -2 + P.Any(-1))("alo alo") is not None
-    assert (word ** -3 + P.Any(-1))("alo alo") is not None
+    assert (word ** 0 + P.Any(-1))("alo alo")
+    assert (word ** 1 + P.Any(-1))("alo alo")
+    assert (word ** 2 + P.Any(-1))("alo alo")
+    assert not (word ** 3 + P.Any(-1))("alo alo")
+    assert not (word ** -1 + P.Any(-1))("alo alo")
+    assert (word ** -2 + P.Any(-1))("alo alo")
+    assert (word ** -3 + P.Any(-1))("alo alo")
 
 eos = P.Any(-1)
 
 def test_eos():
-    assert (digit ** 0 + letter + digit + eos)("1298a1") is not None
-    assert (digit ** 0 + letter + eos)("1257a1") is None
+    assert (digit ** 0 + letter + digit + eos)("1298a1")
+    assert not (digit ** 0 + letter + eos)("1257a1")
 
 b = P.Grammar(P.Match("(") +
               (((P.Any(1) - P.Set("()")) | +P.Match("(") + P.Var(0)) ** 0) +
               P.Match(")"))
 
 def test_matching_paren():
-    assert b("(a1())()") is not None
-    assert (b + eos)("(a1())()") is None
-    assert (b + eos)("((a1())()(é))") is not None
-    assert b("(a1()()") is None
+    assert b("(a1())()")
+    assert not (b + eos)("(a1())()")
+    assert (b + eos)("((a1())()(é))")
+    assert not b("(a1()()")
 
 def test_word_exclusion():
-    assert (letter ** 1 - P.Match("for"))("foreach") is None
-    assert (letter ** 1 - (P.Match("for") + eos))("foreach") is not None
-    assert (letter ** 1 - (P.Match("for") + eos))("for") is None
+    assert not (letter ** 1 - P.Match("for"))("foreach")
+    assert (letter ** 1 - (P.Match("for") + eos))("foreach")
+    assert not (letter ** 1 - (P.Match("for") + eos))("for")
 
 # Now we need capture support...
 def basiclookfor(p):
@@ -133,6 +131,6 @@ def caplookfor(p):
     return basiclookfor(P.Cap(p))
 
 def test_initial_matches():
-    assert caplookfor(letter**1)("   4achou123...") == ["achou"]
-    a = (caplookfor(letter**1)**0)(" two words, one more  ")
+    assert caplookfor(letter**1)("   4achou123...").captures == ["achou"]
+    a = (caplookfor(letter**1)**0)(" two words, one more  ").captures
     assert a == ["two", "words", "one", "more"]
