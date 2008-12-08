@@ -85,13 +85,13 @@ class TestBuild(TestCase):
     def testset(self):
         p = P.Set("abdef")
         self.match(p, ['set'])
-        self.assertEqual([p(s) for s in "abcdefgh"],
-                [1, 1, None, 1, 1, 1, None, None])
+        self.assertEqual([p(s).pos for s in "abcdefgh"],
+                [1, 1, -1, 1, 1, 1, -1, -1])
     def testrange(self):
         p = P.Range("bceg")
         self.match(p, ['set'])
-        self.assertEqual([p(s) for s in "abcdefgh"],
-                [None, 1, 1, None, 1, 1, 1, None])
+        self.assertEqual([p(s).pos for s in "abcdefgh"],
+                [-1, 1, 1, -1, 1, 1, 1, -1])
 
 class TestConcat(TestCase):
     def testany(self):
@@ -165,8 +165,8 @@ class TestPow(TestCase):
         self.match(P.Any(1) ** 3, ['any', 'any', 'any', 'span'])
     def testmatch(self):
         p = P.Match("foo") ** 0
-        self.assertEqual(p("boofoo"), 0)
-        self.assertEqual(p("foofoo"), 6)
+        self.assertEqual(p("boofoo").pos, 0)
+        self.assertEqual(p("foofoo").pos, 6)
 
 class TestDiff(TestCase):
     def match(self, pat, items):
@@ -209,59 +209,59 @@ class TestCapture(TestCase):
 class TestMatch(TestCase):
     def testdummy(self):
         p = P.Dummy()
-        self.assertEqual(p("aOmega"), 6)
+        self.assertEqual(p("aOmega").pos, 6)
     def testany(self):
         p = P.Any(0)
-        self.assertEqual(p("fred"), 0)
+        self.assertEqual(p("fred").pos, 0)
         p = P.Any(1)
-        self.assertEqual(p("fred"), 1)
+        self.assertEqual(p("fred").pos, 1)
         p = P.Any(-1)
-        self.assertEqual(p("fred"), None)
+        self.assertEqual(p("fred").pos, -1)
         p = P.Any(-1)
-        self.assertEqual(p(""), 0)
+        self.assertEqual(p("").pos, 0)
     def testmatch(self):
         p = P.Match("fred")
-        self.assertEqual(p("fred"), 4)
-        self.assertEqual(p("freddy"), 4)
-        self.assertEqual(p("jim"), None)
+        self.assertEqual(p("fred").pos, 4)
+        self.assertEqual(p("freddy").pos, 4)
+        self.assertEqual(p("jim").pos, -1)
     def testfail(self):
         p = P.Fail()
-        self.assertEqual(p("jim"), None)
-        self.assertEqual(p(""), None)
+        self.assertEqual(p("jim").pos, -1)
+        self.assertEqual(p("").pos, -1)
 
 class TestCaptureRet(TestCase):
     def testpos(self):
         p = P.Any(3) + P.CapP() + P.Any(2) + P.CapP()
-        self.assertEqual(p("abcdef"), [3, 5])
+        self.assertEqual(p("abcdef").captures, [3, 5])
     def testarg(self):
         p = P.CapA(1) + P.CapA(3) + P.CapA(2)
-        self.assertEqual(p("abcdef", 1, "hi", None), [1, None, "hi"])
+        self.assertEqual(p("abcdef", 1, "hi", None).captures, [1, None, "hi"])
     def testconst(self):
         p = P.CapC(["foo", 1, None, "bar"])
-        self.assertEqual(p("abcdef"), [["foo", 1, None, "bar"]])
+        self.assertEqual(p("abcdef").captures, [["foo", 1, None, "bar"]])
     def testsimple(self):
         p = P.Any(1) + P.Cap(P.Any(2))
-        self.assertEqual(p("abc"), ["bc"])
-        self.assertEqual(P.Cap(p)("abc"), ["abc", "bc"])
+        self.assertEqual(p("abc").captures, ["bc"])
+        self.assertEqual(P.Cap(p)("abc").captures, ["abc", "bc"])
     def testsubst(self):
         p = P.Any(1) + P.CapS(P.CapP() + P.Any(2))
-        self.assertEqual(p("abc"), ["1bc"])
-        self.assertEqual(P.Cap(p)("abc"), ["abc", "1bc"])
+        self.assertEqual(p("abc").captures, ["1bc"])
+        self.assertEqual(P.Cap(p)("abc").captures, ["abc", "1bc"])
 
 class TestGrammar(TestCase):
     def testsimple(self):
         p = P.Any(1)
         pg = P.Grammar(p)
-        self.assertEqual(pg("ab"), 1)
+        self.assertEqual(pg("ab").pos, 1)
     def testnamedrule(self):
         p = P.Grammar(P.Var("a") + P.Var("a"), a=P(1))
-        self.assertEqual(p("ab"), 2)
+        self.assertEqual(p("ab").pos, 2)
     def testexplicitstart(self):
         p = P.Grammar(P.Var("a") + P.Var("a"), a=P(1), start="a")
-        self.assertEqual(p("ab"), 1)
+        self.assertEqual(p("ab").pos, 1)
     def testpositionalrules(self):
         p = P.Grammar(P.Var(1) + P.Var(2), P(1), P(1))
-        self.assertEqual(p("ab"), 2)
+        self.assertEqual(p("ab").pos, 2)
     def testleftrecursion(self):
         self.assertRaises(RuntimeError, P.Grammar, P.Var(0) + P(1))
 
