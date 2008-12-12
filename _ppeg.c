@@ -1009,8 +1009,31 @@ static PyObject *Pattern_dump(Pattern *self) {
         return NULL;
 
     for (;;) {
-        PyObject *item = Py_BuildValue("(sii)", INAME(p->i.code),
-                p->i.aux, p->i.offset);
+        PyObject *item;
+        char cset[256];
+        int cs_len = 0;
+        static char *kinds[] = {
+            "Close", "Position", "Const", "Backref", "Arg", "Simple",
+            "Table", "Function", "Query", "String", "Subst", "Fold",
+            "Runtime", "Group" };
+
+        if (hascharset(p)) {
+            int i;
+            for (i = 0; i < 256; ++i) {
+                if (testchar((p+1)->buff, i)) {
+                    cset[cs_len++] = i;
+                }
+            }
+        }
+
+        /* Instruction, aux, offset, cset, capkind, capoff, jmpdest */
+        item = Py_BuildValue("(siis#sii)",
+                INAME(p->i.code),
+                p->i.aux, p->i.offset,
+                cset, cs_len,
+                iscapture(p) ? kinds[getkind(p)] : "",
+                iscapture(p) ? getoff(p) : 0,
+                isprop(p, ISJMP|ISCHECK) ? dest(0,p) == p ? -1 : dest(0,p) - patprog(self) : 0);
         if (item == NULL) {
             Py_DECREF(result);
             return NULL;
