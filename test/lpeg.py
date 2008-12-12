@@ -66,6 +66,14 @@ def test_match_match():
 
 # Character sets
 def cs2str(c):
+    # d = c.dump()
+    # assert len(d) == 2, "cs2str: pattern is not a charset"
+    # if d[0][0] == 'fail':
+    #     return ""
+    # if d[0][0] == 'char':
+    #     return chr(d[0][1])
+    # assert d[0][0] == 'set', "cs2str: pattern is not a charset (" + d[0][0] + ")"
+    # return d[0][3]
     return "".join(chr(ch) for ch in range(256) if c(chr(ch)))
 def eqcharset(c1, c2):
     assert cs2str(c1) == cs2str(c2)
