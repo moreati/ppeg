@@ -347,5 +347,16 @@ class TestCoercion(TestCase):
         self.assertEqual(P("a")-1, "a"-P(1))
         self.assertEqual(P(None)-1, None-P(1))
 
+class TestGroupCap(TestCase):
+    def testsimple(self):
+        self.assertEqual(P.CapG(P(1))("a").captures, ["a"])
+    def testnamed(self):
+        self.assertEqual(P.CapG(P(1), "dummy")("a").captures, [])
+    def testbackref(self):
+        p = P.CapG(P(1), "dummy") + P.CapB("dummy") + P.CapB("dummy")
+        self.assertEqual(p("a").captures, ["a", "a"])
+    def testunknownbackref(self):
+        p = P.CapG(P(1), "dummy") + P.CapB("unknown")
+        self.assertRaises(RuntimeError, p, "a")
 if __name__ == '__main__':
     main()

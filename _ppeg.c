@@ -1583,6 +1583,15 @@ static PyObject *Pattern_CaptureSub(PyObject *cls, PyObject *pat) {
     return capture_aux(cls, pat, Csubst, 0);
 }
 
+static PyObject *Pattern_CaptureGroup(PyObject *cls, PyObject *args) {
+    PyObject *pat = NULL;
+    PyObject *id = NULL;
+
+    if (!PyArg_UnpackTuple(args, "CapG", 1, 2, &pat, &id))
+        return NULL;
+    return capture_aux(cls, pat, Cgroup, id);
+}
+
 static PyObject *Pattern_divide(PyObject *self, PyObject *other) {
     PyObject *cls;
     PyObject *result = NULL;
@@ -1604,6 +1613,19 @@ static PyObject *Pattern_CapturePos(PyObject *cls) {
     PyObject *result = new_patt(cls, 1);
     if (result)
         setinstcap(patprog(result), IEmptyCapture, 0, Cposition, 0);
+    return result;
+}
+
+static PyObject *Pattern_CaptureBack(PyObject *cls, PyObject *id) {
+    PyObject *result = new_patt(cls, 1);
+    if (result) {
+        Py_ssize_t j = val2env(result, id);
+        if (j == ENV_ERROR) {
+            Py_DECREF(result);
+            return NULL;
+        }
+        setinstcap(patprog(result), IEmptyCaptureIdx, j, Cbackref, 0);
+    }
     return result;
 }
 
@@ -1787,6 +1809,58 @@ static int substcap(PyObject *lst, CapState *cs) {
     return 0;
 }
 
+static Capture *findback (CapState *cs, Capture *cap, PyObject *id) {
+    for (;;) {
+        if (cap == cs->ocap) {  /* not found */
+            PyObject *repr = PyObject_Repr(id);
+            char *s;
+            if (repr == NULL)
+                return NULL;
+            s = PyString_AsString(repr);
+            if (s == NULL)
+                s = "(Unknown)";
+            PyErr_Format(PyExc_RuntimeError, "Back reference %s not found", s);
+            Py_DECREF(repr);
+            return NULL;
+        }
+        cap--;
+        if (isclosecap(cap))
+            cap = findopen(cap);
+        else if (!isfullcap(cap))
+            continue; /* opening an enclosing capture: skip and get previous */
+        if (captype(cap) == Cgroup) {
+            PyObject *grpid = env2val(cs->patt, cap->idx);
+            int cmp;
+            if (grpid == NULL && PyErr_Occurred())
+                return NULL;
+            if (PyObject_Cmp(id, grpid, &cmp) == -1) {
+                Py_DECREF(grpid);
+                return NULL;
+            }
+            if (cmp == 0) {  /* right group? */
+                return cap;
+            }
+        }
+    }
+}
+
+static int backrefcap (CapState *cs) {
+    int n;
+    Capture *curr = cs->cap;
+    PyObject *id = env2val(cs->patt, cs->cap->idx);
+    if (id == NULL && PyErr_Occurred())
+        return -1;
+    cs->cap = findback(cs, curr, id);
+    if (cs->cap == NULL) {
+        /* Restore old value and return an error */
+        cs->cap = curr;
+        return -1;
+    }
+    n = pushallvalues(cs, 0);
+    cs->cap = curr + 1;
+    return n;
+}
+
 static int addonestring (PyObject *lst, CapState *cs, const char *what) {
     switch (captype(cs->cap)) {
         case Cstring:
@@ -1905,6 +1979,7 @@ static int pushcapture (CapState *cs) {
                 return 0;
             }
         }
+        case Cbackref: return backrefcap(cs);
         default: {
             return 0;
         }
@@ -1935,6 +2010,8 @@ static PyObject *getcaptures (PyObject *patt, Capture **capturep, const char *s,
             n += count;
         } while (!isclosecap(cs.cap));
     }
+#if 0
+    /* No longer return end pos as result, as match object handles this */
     if (n == 0) { /* No capture values */
         PyObject *val = PyInt_FromLong(r - s);
         if (!val) {
@@ -1945,6 +2022,7 @@ static PyObject *getcaptures (PyObject *patt, Capture **capturep, const char *s,
         result = val;
         /* PyList_Append(result, val); */
     }
+#endif
 
     return result;
 }
@@ -1983,6 +2061,10 @@ Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
     res->pos = e - str;
     res->captures = getcaptures((PyObject*)self, &cc, str, e, args);
     free(cc);
+    if (res->captures == NULL) {
+        Py_DECREF(result);
+        return NULL;
+    }
     return result;
 }
 
@@ -2032,6 +2114,12 @@ static PyMethodDef Pattern_methods[] = {
     },
     {"CapC", (PyCFunction)Pattern_CaptureConst, METH_O | METH_CLASS,
      "A constant capture"
+    },
+    {"CapB", (PyCFunction)Pattern_CaptureBack, METH_O | METH_CLASS,
+     "A back reference"
+    },
+    {"CapG", (PyCFunction)Pattern_CaptureGroup, METH_VARARGS | METH_CLASS,
+     "A group capture"
     },
     {"Var", (PyCFunction)Pattern_Var, METH_O | METH_CLASS,
      "A grammar variable reference"
