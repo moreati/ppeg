@@ -382,5 +382,18 @@ class TestOtherCap(TestCase):
         p = P.CapF(P.CapC([]) + P(1) + (P.Cap(P(2))**1), fn)
         self.assertEqual(p("abcdefg").captures, [["BC", "DE", "FG"]])
 
+class TestRuntimeCap(TestCase):
+    def testbasic(self):
+        matchone = P.Cap(P(1))
+        # Icky interface :-(
+        def fn(str, rest, pos, caps):
+            if (rest.startswith(caps[0])):
+                return pos+len(caps[0])
+            return None
+        matchtwo = P.CapRT(matchone, fn)
+        self.assertEqual(matchtwo("aa").pos, 2)
+        self.assertEqual(matchtwo("aab").pos, 2)
+        self.assertEqual(matchtwo("ab").pos, -1)
+
 if __name__ == '__main__':
     main()

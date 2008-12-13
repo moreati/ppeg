@@ -378,6 +378,7 @@ static void adddyncaptures (const char *s, Capture *base, int n, int fd) {
 }
 
 
+#if 0
 #define condfailed(p)	{ int f = p->i.offset; if (f) p+=f; else goto fail; }
 
 
@@ -600,7 +601,6 @@ static const char *match ( /* lua_State *L, */
 /* }====================================================== */
 
 
-#if 0
 /*
 ** {======================================================
 ** Verifier
