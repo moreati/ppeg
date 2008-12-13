@@ -1605,6 +1605,30 @@ static PyObject *Pattern_CaptureFold(PyObject *cls, PyObject *args) {
     return capture_aux(cls, pat, Cfold, fn);
 }
 
+static PyObject *Pattern_CaptureRuntime(PyObject *cls, PyObject *args) {
+    PyObject *pat = NULL;
+    PyObject *fn = NULL;
+    PyObject *result;
+
+    if (!PyArg_UnpackTuple(args, "CapRT", 2, 2, &pat, &fn))
+        return NULL;
+    result = new_patt(cls, 1 + patsize(pat) + 1);
+    if (result) {
+        Instruction *p = patprog(result);
+        int id = val2env(result, fn);
+        if (id == ENV_ERROR) {
+            Py_DECREF(result);
+            return NULL;
+        }
+        setinstcap(p++, IOpenCapture, id, Cruntime, 0);
+        p += addpatt(result, p, pat);
+        setinstcap(p, ICloseRunTime, 0, Cclose, 0);
+        optimizecaptures(patprog(result));
+    }
+
+    return result;
+}
+
 static PyObject *Pattern_divide(PyObject *self, PyObject *other) {
     PyObject *cls;
     PyObject *result = NULL;
@@ -2028,6 +2052,55 @@ static int foldcap (CapState *cs) {
     return 1;
 }
 
+static int runtimecap (Capture *close, Capture *ocap,
+                       const char *o, const char *s,
+                       PyObject *patt, PyObject *args,
+                       PyObject **ret) {
+    CapState cs;
+    int n;
+    PyObject *fn;
+    Capture *open = findopen(close);
+    PyObject *result = PyList_New(0);
+    PyObject *temp;
+    *ret = NULL;
+    if (result == NULL)
+        return -1;
+    assert(captype(open) == Cruntime);
+    fn = env2val(patt, open->idx);
+    if (fn == NULL) {
+        Py_DECREF(result);
+        if (!PyErr_Occurred())
+            PyErr_SetString(PyExc_RuntimeError, "No function for runtime capture");
+        return -1;
+    }
+    close->kind = Cclose;
+    close->s = s;
+    cs.ocap = ocap; cs.cap = open;
+    cs.values = result;
+    cs.s = o;
+    cs.args = args;
+    cs.patt = patt;
+#if 0 /* What is this for? */
+    pushluaval(&cs);
+    lua_pushvalue(L, SUBJIDX);  /* push original subject */
+    lua_pushinteger(L, s - o + 1);  /* current position */
+#endif
+    n = pushallvalues(&cs, 0);
+    temp = PyObject_CallFunctionObjArgs((PyObject*)&PyTuple_Type, result, NULL);
+    Py_DECREF(result);
+    if (temp == NULL) {
+        Py_DECREF(fn);
+        return -1;
+    }
+    result = temp;
+    temp = PyObject_CallFunction(fn, "ssiO", o, s, s-o, result);
+    Py_DECREF(result);
+    Py_DECREF(fn);
+    if (temp == NULL)
+        return -1;
+    *ret = temp;
+    return close - open;
+}
 static int addonestring (PyObject *lst, CapState *cs, const char *what) {
     switch (captype(cs->cap)) {
         case Cstring:
@@ -2142,6 +2215,16 @@ static int pushcapture (CapState *cs) {
             }
             return k;
         }
+        case Cruntime: {
+            int n = 0;
+            while (!isclosecap(cs->cap++)) {
+                fprintf(stderr, "TODO: work out what to do here\n");
+                //luaL_checkstack(cs->L, 4, "too many captures");
+                //lua_pushvalue(cs->L, (cs->cap - 1)->idx);
+                //n++;
+            }
+            return n;
+        }
         case Cstring: {
             PyObject *lst = PyList_New(0);
             PyObject *str = PyString_FromString("");
@@ -2233,8 +2316,215 @@ static PyObject *getcaptures (PyObject *patt, Capture **capturep, const char *s,
  * Finally, the matcher
  * **********************************************************************
  */
+#define condfailed(p)	{ int f = p->i.offset; if (f) p+=f; else goto fail; }
+
+static const char *match (const char *o, const char *s, const char *e,
+                          PyObject *patt, Capture *capture, PyObject *args) {
+    Stack stackbase[MAXBACK];
+    Stack *stacklimit = stackbase + MAXBACK;
+    Stack *stack = stackbase;  /* point to first empty slot in stack */
+    int capsize = IMAXCAPTURES;
+    int captop = 0;  /* point to first empty slot in captures */
+    const Instruction *op = patprog(patt);
+    const Instruction *p = op;
+    stack->p = &giveup; stack->s = s; stack->caplevel = 0; stack++;
+    for (;;) {
+#if defined(DEBUG)
+        printf("s: |%s| stck: %d c: %d  ", s, stack - stackbase, captop);
+        printinst(op, p);
+#endif
+        switch ((Opcode)p->i.code) {
+            case IEnd: {
+                assert(stack == stackbase + 1);
+                capture[captop].kind = Cclose;
+                capture[captop].s = NULL;
+                return s;
+            }
+            case IGiveup: {
+                assert(stack == stackbase);
+                /* Make sure we don't have a pending error */
+                PyErr_Clear();
+                return NULL;
+            }
+            case IRet: {
+                assert(stack > stackbase && (stack - 1)->s == NULL);
+                p = (--stack)->p;
+                continue;
+            }
+            case IAny: {
+                int n = p->i.aux;
+                if (n <= e - s) { p++; s += n; }
+                else condfailed(p);
+                continue;
+            }
+            case IChar: {
+                if ((byte)*s == p->i.aux && s < e) { p++; s++; }
+                else condfailed(p);
+                continue;
+            }
+            case ISet: {
+                int c = (byte)*s;
+                if (testchar((p+1)->buff, c) && s < e)
+                    { p += CHARSETINSTSIZE; s++; }
+                else condfailed(p);
+                continue;
+            }
+            case ISpan: {
+                for (; s < e; s++) {
+                    int c = (byte)*s;
+                    if (!testchar((p+1)->buff, c)) break;
+                }
+                p += CHARSETINSTSIZE;
+                continue;
+            }
+            case IFunc: {
+                const char *r = (p+1)->f((p+2)->buff, o, s, e);
+                if (r == NULL) goto fail;
+                s = r;
+                p += p->i.offset;
+                continue;
+            }
+            case IJmp: {
+                p += p->i.offset;
+                continue;
+            }
+            case IChoice: {
+                if (stack >= stacklimit) {
+                  PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
+                  return NULL;
+                }
+                stack->p = dest(0, p);
+                stack->s = s - p->i.aux;
+                stack->caplevel = captop;
+                stack++;
+                p++;
+                continue;
+            }
+            case ICall: {
+                if (stack >= stacklimit) {
+                  PyErr_SetString(PyExc_RuntimeError, "Too many pending calls/choices");
+                  return NULL;
+                }
+                stack->s = NULL;
+                stack->p = p + 1;  /* save return address */
+                stack++;
+                p += p->i.offset;
+                continue;
+            }
+            case ICommit: {
+                assert(stack > stackbase && (stack - 1)->s != NULL);
+                stack--;
+                p += p->i.offset;
+                continue;
+            }
+            case IPartialCommit: {
+                assert(stack > stackbase && (stack - 1)->s != NULL);
+                (stack - 1)->s = s;
+                (stack - 1)->caplevel = captop;
+                p += p->i.offset;
+                continue;
+            }
+            case IBackCommit: {
+                assert(stack > stackbase && (stack - 1)->s != NULL);
+                s = (--stack)->s;
+                p += p->i.offset;
+                continue;
+            }
+            case IFailTwice:
+                assert(stack > stackbase);
+                stack--;
+                /* go through */
+            case IFail:
+            fail: { /* pattern failed: try to backtrack */
+                do {  /* remove pending calls */
+                    assert(stack > stackbase);
+                    s = (--stack)->s;
+                } while (s == NULL);
+                captop = stack->caplevel;
+                p = stack->p;
+                continue;
+            }
+            case ICloseRunTime: {
+                PyObject *result;
+                long res;
+                int ncap = runtimecap(capture + captop, capture, o, s, patt, args, &result);
+                if (ncap == -1)
+                    return NULL;
+                if (result == Py_None) {
+                    Py_DECREF(result);
+                    goto fail;
+                }
+                res = PyInt_AsLong(result);
+                Py_DECREF(result);
+                if (res == -1 && PyErr_Occurred())
+                    return NULL;
+                if (res < s - o || res > e - o) {
+                    PyErr_SetString(PyExc_RuntimeError, "Invalid position returned by match-time capture");
+                    return NULL;
+                }
+                s = o + res;  /* update current position */
+                captop -= ncap;  /* remove nested captures */
+#if 0
+                if (n > 0) {  /* captures? */
+                    if ((captop += n + 1) >= capsize) {
+                        capture = doublecap(L, capture, captop, ptop);
+                        capsize = 2 * captop;
+                    }
+                    adddyncaptures(s, capture + captop - n - 1, n, fr);
+                }
+#endif
+                p++;
+                continue;
+            }
+            case ICloseCapture: {
+                const char *s1 = s - getoff(p);
+                assert(captop > 0);
+                if (capture[captop - 1].siz == 0 &&
+                        s1 - capture[captop - 1].s < UCHAR_MAX) {
+                    capture[captop - 1].siz = s1 - capture[captop - 1].s + 1;
+                    p++;
+                    continue;
+                }
+                else {
+                    capture[captop].siz = 1;  /* mark entry as closed */
+                    goto capture;
+                }
+            }
+            case IEmptyCapture: case IEmptyCaptureIdx:
+                capture[captop].siz = 1;  /* mark entry as closed */
+                goto capture;
+            case IOpenCapture:
+                capture[captop].siz = 0;  /* mark entry as open */
+                goto capture;
+            case IFullCapture:
+                capture[captop].siz = getoff(p) + 1;  /* save capture size */
+            capture: {
+                capture[captop].s = s - getoff(p);
+                capture[captop].idx = p->i.offset;
+                capture[captop].kind = getkind(p);
+                if (++captop >= capsize) {
+#if 0
+                    capture = doublecap(L, capture, captop, ptop);
+#else
+                    assert(0);
+#endif
+                    capsize = 2 * captop;
+                }
+                p++;
+                continue;
+            }
+#if 0
+            case IOpenCall: {
+                lua_rawgeti(L, penvidx(ptop), p->i.offset);
+                luaL_error(L, "reference to %s outside a grammar", val2str(L, -1));
+            }
+#endif
+            default: assert(0); return NULL;
+        }
+    }
+}
 static PyObject *
-Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
+Pattern_call(PyObject *self, PyObject *args, PyObject *kw)
 {
     char *str;
     Py_ssize_t len;
@@ -2257,9 +2547,14 @@ Pattern_call(Pattern* self, PyObject *args, PyObject *kw)
         return NULL;
 
     res = (Match *)result;
-    e = match("", str, str + len, self->prog, cc, 0);
-    if (e == 0)
+    e = match(str, str, str + len, self, cc, args);
+    if (e == 0) {
+        if (PyErr_Occurred()) {
+            Py_DECREF(result);
+            return NULL;
+        }
         return result;
+    }
     res->pos = e - str;
     res->captures = getcaptures((PyObject*)self, &cc, str, e, args);
     free(cc);
@@ -2325,6 +2620,9 @@ static PyMethodDef Pattern_methods[] = {
     },
     {"CapF", (PyCFunction)Pattern_CaptureFold, METH_VARARGS | METH_CLASS,
      "A fold capture"
+    },
+    {"CapRT", (PyCFunction)Pattern_CaptureRuntime, METH_VARARGS | METH_CLASS,
+     "A runtime capture"
     },
     {"Var", (PyCFunction)Pattern_Var, METH_O | METH_CLASS,
      "A grammar variable reference"
