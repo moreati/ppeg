@@ -358,5 +358,29 @@ class TestGroupCap(TestCase):
     def testunknownbackref(self):
         p = P.CapG(P(1), "dummy") + P.CapB("unknown")
         self.assertRaises(RuntimeError, p, "a")
+
+class TestOtherCap(TestCase):
+    def testquery(self):
+        tbl = dict(a="fail", bc="result", ab="fail")
+        p = P(1) + P.Cap(P(2))
+        self.assertEqual((p/tbl)("abcdef").captures, ["result"])
+    def testfunction(self):
+        def fn(s):
+            return s.upper()
+        p = P(1) + P.Cap(P(2))
+        self.assertEqual((p/fn)("abcdef").captures, ["BC"])
+    def testfold(self):
+        def fn(a, v):
+            return a + ", " + v.upper()
+        p = P.CapF(P(1) + (P.Cap(P(2))**1), fn)
+        # Note: Initial value is unchanged!
+        self.assertEqual(p("abcdefg").captures, ["bc, DE, FG"])
+    def testfolddummyaccum(self):
+        def fn(a, v):
+            a.append(v.upper())
+            return a
+        p = P.CapF(P.CapC([]) + P(1) + (P.Cap(P(2))**1), fn)
+        self.assertEqual(p("abcdefg").captures, [["BC", "DE", "FG"]])
+
 if __name__ == '__main__':
     main()

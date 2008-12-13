@@ -1546,23 +1546,27 @@ static PyObject *capture_aux(PyObject*cls, PyObject *pat, int kind, PyObject *la
 
     if (lc == patsize(pat)) {  /* got whole pattern? */
         /* may use a IFullCapture instruction at its end */
-        int labelid = val2env(pat, label);
-        if (labelid == ENV_ERROR)
-            return NULL;
         result = new_patt(cls, patsize(pat) + 1);
         if (result) {
             Instruction *p = patprog(result);
+            int labelid = val2env(result, label);
+            if (labelid == ENV_ERROR) {
+                Py_DECREF(result);
+                return NULL;
+            }
             p += addpatt(result, p, pat);
             setinstcap(p, IFullCapture, labelid, kind, n);
         }
     }
     else {  /* must use open-close pair */
-        int labelid = val2env(pat, label);
-        if (labelid == ENV_ERROR)
-            return NULL;
         result = new_patt(cls, 1 + patsize(pat) + 1);
         if (result) {
             Instruction *p = patprog(result);
+            int labelid = val2env(result, label);
+            if (labelid == ENV_ERROR) {
+                Py_DECREF(result);
+                return NULL;
+            }
             setinstcap(p++, IOpenCapture, labelid, kind, 0);
             p += addpatt(result, p, pat);
             setinstcap(p, ICloseCapture, 0, Cclose, 0);
@@ -1592,6 +1596,15 @@ static PyObject *Pattern_CaptureGroup(PyObject *cls, PyObject *args) {
     return capture_aux(cls, pat, Cgroup, id);
 }
 
+static PyObject *Pattern_CaptureFold(PyObject *cls, PyObject *args) {
+    PyObject *pat = NULL;
+    PyObject *fn = NULL;
+
+    if (!PyArg_UnpackTuple(args, "CapF", 2, 2, &pat, &fn))
+        return NULL;
+    return capture_aux(cls, pat, Cfold, fn);
+}
+
 static PyObject *Pattern_divide(PyObject *self, PyObject *other) {
     PyObject *cls;
     PyObject *result = NULL;
@@ -1602,6 +1615,10 @@ static PyObject *Pattern_divide(PyObject *self, PyObject *other) {
 
     if (PyString_Check(other))
         result = capture_aux(((PyObject*)(self->ob_type)), self, Cstring, other);
+    else if (PyMapping_Check(other))
+        result = capture_aux(((PyObject*)(self->ob_type)), self, Cquery, other);
+    else if (1) /* No way of testing for callable! */
+        result = capture_aux(((PyObject*)(self->ob_type)), self, Cfunction, other);
     else
         PyErr_SetString(PyExc_ValueError, "Pattern replacement must be string, function, or dict");
 
@@ -1683,6 +1700,25 @@ int pushsubject(CapState *cs, Capture *c) {
 }
 
 static int pushcapture (CapState *cs);
+
+static PyObject *getonecapture (CapState *cs) {
+    int n;
+    PyObject *save;
+    PyObject *captures = PyList_New(0);
+    if (captures == NULL)
+        return NULL;
+    save = cs->values;
+    cs->values = captures;
+    n = pushcapture(cs);
+    cs->values = save;
+    if (n == -1) {
+        Py_DECREF(captures);
+        return NULL;
+    }
+    save = PySequence_GetItem(captures, 0);
+    Py_DECREF(captures);
+    return save;
+}
 
 static int pushallvalues (CapState *cs, int addextra) {
     Capture *co = cs->cap;
@@ -1768,9 +1804,12 @@ static int stringcap(PyObject *lst, CapState *cs) {
             }
             else {
                 Capture *curr = cs->cap;
+                int rv;
                 cs->cap = cps[l].u.cp;
-                if (addonestring(lst, cs, "capture") == 0) {
-                    PyErr_SetString(PyExc_ValueError, "No values in capture index");
+                rv = addonestring(lst, cs, "capture");
+                if (rv != 1) {
+                    if (rv != -1)
+                        PyErr_SetString(PyExc_ValueError, "No values in capture index");
                     return -1;
                 }
                 cs->cap = curr;
@@ -1793,10 +1832,14 @@ static int substcap(PyObject *lst, CapState *cs) {
         cs->cap++;
         while (!isclosecap(cs->cap)) {
             const char *next = cs->cap->s;
+            int rv;
             str = PyString_FromStringAndSize(curr, next - curr);
             PyList_Append(lst, str);
             Py_DECREF(str);
-            if (addonestring(lst, cs, "replacement") == 0) /* No capture value? */
+            rv = addonestring(lst, cs, "replacement");
+            if (rv == -1)
+                return -1;
+            else if (rv == 0) /* No capture value? */
                 curr = next;
             else
                 curr = closeaddr(cs->cap - 1); /* Continue after match */
@@ -1861,6 +1904,130 @@ static int backrefcap (CapState *cs) {
     return n;
 }
 
+static int querycap (CapState *cs) {
+    int n;
+    /* Copy this here, as pushallvalues changes cs->cap */
+    int capidx = cs->cap->idx;
+    PyObject *idx;
+    PyObject *tbl;
+    PyObject *result;
+    n = pushallvalues(cs, 0);
+    if (n == -1)
+        return -1;
+    /* We only want the first one (at posn -n) and we remove them
+     * from the cs->values list
+     */
+    idx = PySequence_GetItem(cs->values, -n);
+    if (idx == NULL)
+        return -1;
+    if (PySequence_DelSlice(cs->values, -n, PySequence_Size(cs->values)) == -1) {
+        Py_DECREF(idx);
+        return -1;
+    }
+    tbl = env2val(cs->patt, capidx);
+    if (tbl == NULL) {
+        Py_DECREF(idx);
+        return -1;
+    }
+    if (!PyMapping_HasKey(tbl, idx)) {
+        Py_DECREF(tbl);
+        Py_DECREF(idx);
+        return 0;
+    }
+    result = PyObject_GetItem(tbl, idx);
+    if (result == NULL) {
+        /* Cannot happen, as HasKey above returned true */
+        Py_DECREF(tbl);
+        Py_DECREF(idx);
+        return -1;
+    }
+    Py_DECREF(tbl);
+    Py_DECREF(idx);
+    if (PyList_Append(cs->values, result) == -1) {
+        Py_DECREF(result);
+        return -1;
+    }
+    Py_DECREF(result);
+    return 1;
+}
+
+static int functioncap (CapState *cs) {
+    int n;
+    int capidx = cs->cap->idx;
+    PyObject *temp = cs->values;
+    PyObject *captures;
+    PyObject *fn;
+    fn = env2val(cs->patt, capidx);
+    if (fn == NULL && PyErr_Occurred())
+        return -1;
+    if (fn == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "No function for function capture");
+        return -1;
+    }
+    captures = PyList_New(0);
+    if (captures == NULL) {
+        Py_DECREF(fn);
+        return -1;
+    }
+    cs->values = captures;
+    n = pushallvalues(cs, 0);
+    cs->values = temp;
+    temp = PyObject_CallFunctionObjArgs((PyObject*)&PyTuple_Type, captures, NULL);
+    if (temp == NULL) {
+        Py_DECREF(captures);
+        Py_DECREF(fn);
+        return -1;
+    }
+    Py_DECREF(captures);
+    captures = temp;
+    temp = PyObject_CallObject(fn, captures);
+    Py_DECREF(captures);
+    Py_DECREF(fn);
+    if (temp == NULL)
+        return -1;
+    if (PyList_Append(cs->values, temp) == -1) {
+        Py_DECREF(temp);
+        return -1;
+    }
+    Py_DECREF(temp);
+    return 1;
+}
+
+static int foldcap (CapState *cs) {
+    int idx = cs->cap->idx;
+    PyObject *accum;
+    PyObject *fn = env2val(cs->patt, idx);
+    if (fn == NULL && PyErr_Occurred())
+        return -1;
+    if (fn == NULL) {
+        PyErr_SetString(PyExc_RuntimeError, "No function for fold capture");
+        return -1;
+    }
+    if (isfullcap(cs->cap++) || isclosecap(cs->cap) || (accum = getonecapture(cs)) == NULL) {
+        if (!PyErr_Occurred())
+            PyErr_SetString(PyExc_RuntimeError, "No initial value for fold capture");
+        Py_DECREF(fn);
+        return -1;
+    }
+    while (!isclosecap(cs->cap)) {
+        PyObject *val = getonecapture(cs);
+        accum = PyObject_CallFunctionObjArgs(fn, accum, val, NULL);
+        Py_DECREF(val);
+        if (accum == NULL) {
+            Py_DECREF(fn);
+            return -1;
+        }
+    }
+    cs->cap++;  /* skip close entry */
+    Py_DECREF(fn);
+    if (PyList_Append(cs->values, accum) == -1) {
+        Py_DECREF(accum);
+        return -1;
+    }
+    Py_DECREF(accum);
+    return 1;
+}
+
 static int addonestring (PyObject *lst, CapState *cs, const char *what) {
     switch (captype(cs->cap)) {
         case Cstring:
@@ -1875,6 +2042,33 @@ static int addonestring (PyObject *lst, CapState *cs, const char *what) {
             return 1;
         default: {
             /* TODO: using cs->values as temp storage! */
+#if 1 /* Less list hacking, but more temp value shuffling... */
+            int n;
+            PyObject *save = cs->values;
+            PyObject *temp = PyList_New(0);
+            PyObject *val;
+            if (temp == NULL)
+                return -1;
+            /* Only the first result */
+            cs->values = temp;
+            n = pushcapture(cs);
+            temp = cs->values;
+            cs->values = save;
+            val = PySequence_GetItem(temp, 0);
+            Py_DECREF(temp);
+            if (val == NULL)
+                return -1;
+            if (!PyString_Check(val)) {
+                /* Convert to string */
+                PyObject *s = PyObject_Str(val);
+                Py_DECREF(val);
+                if (s == NULL)
+                    return -1;
+                val = s;
+            }
+            PyList_Append(lst, val);
+            return 1;
+#else
             int n = pushcapture(cs);
             Py_ssize_t len = PyList_Size(cs->values);
             PyObject *val;
@@ -1890,6 +2084,7 @@ static int addonestring (PyObject *lst, CapState *cs, const char *what) {
             /* Drop the results */
             PyList_SetSlice(cs->values, len - n, len, NULL);
             return n; /* ??? 1, surely? */
+#endif
         }
     }
 }
@@ -1980,6 +2175,13 @@ static int pushcapture (CapState *cs) {
             }
         }
         case Cbackref: return backrefcap(cs);
+        /* Table captures have different semantics, because tables in
+         * Lua don't quite correspond to lists or dicts in Python.
+         */
+        /* case Ctable: return tablecap(cs); */
+        case Cfunction: return functioncap(cs);
+        case Cquery: return querycap(cs);
+        case Cfold: return foldcap(cs);
         default: {
             return 0;
         }
@@ -2120,6 +2322,9 @@ static PyMethodDef Pattern_methods[] = {
     },
     {"CapG", (PyCFunction)Pattern_CaptureGroup, METH_VARARGS | METH_CLASS,
      "A group capture"
+    },
+    {"CapF", (PyCFunction)Pattern_CaptureFold, METH_VARARGS | METH_CLASS,
+     "A fold capture"
     },
     {"Var", (PyCFunction)Pattern_Var, METH_O | METH_CLASS,
      "A grammar variable reference"
