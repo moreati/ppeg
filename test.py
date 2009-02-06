@@ -248,6 +248,11 @@ class TestCaptureRet(TestCase):
         self.assertEqual(p("abc").captures, ["1bc"])
         self.assertEqual(P.Cap(p)("abc").captures, ["abc", "1bc"])
 
+class TestOpenCall(TestCase):
+    def testopencall(self):
+        p = P.Var("Unset")
+        self.assertRaises(RuntimeError, p, "test")
+
 class TestGrammar(TestCase):
     def testsimple(self):
         p = P.Any(1)
