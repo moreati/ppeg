@@ -2513,12 +2513,10 @@ static const char *match (const char *o, const char *s, const char *e,
                 p++;
                 continue;
             }
-#if 0
             case IOpenCall: {
-                lua_rawgeti(L, penvidx(ptop), p->i.offset);
-                luaL_error(L, "reference to %s outside a grammar", val2str(L, -1));
+                PyErr_SetString(PyExc_RuntimeError, "Reference to rule outside a grammar");
+                return NULL;
             }
-#endif
             default: assert(0); return NULL;
         }
     }
