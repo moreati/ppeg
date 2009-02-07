@@ -22,7 +22,7 @@ Char = ( P("\\") + P.Set("nrt'\"*[]\\") |
        P("\\") + P.Range("07") + P.Range("07") ** -1 |
        -P("\\") + P(1) )
 
-Range = P.Var("Char") + P("-") + P.Var("Char") | P.Var("Char")
+Range = P.Var("Char") + P("-") + P.Var("Char") | P.Var("Char") + P.Var("Spacing")
 Class = P("[") + ( -P("]") + P.Var("Range") ) ** 0 + P("]") + P.Var("Spacing")
 Literal = (P("'") + ( -P("'") + P.Var("Char") ) ** 0 + P("'") + P.Var("Spacing") |
           P('"') + ( -P('"') + P.Var("Char") ) ** 0 + P('"') + P.Var("Spacing")
@@ -83,7 +83,7 @@ PEG = P.Grammar(
 )
 
 # Spacing rules need work!
-PEG_GRAMMAR = """\
+PEG_GRAMMAR = r"""
 # Hierarchical syntax
 Grammar <- Spacing Definition+ EndOfFile
 Definition <- Identifier LEFTARROW Expression
