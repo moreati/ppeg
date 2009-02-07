@@ -6,6 +6,8 @@
 #include "lpeg.c"
 #undef printf
 
+/*#define TRACE 1 */
+
 #define DEBUG 1
 #undef DEBUG
 #ifdef DEBUG
@@ -63,6 +65,9 @@ typedef struct {
      * here
      */
     PyObject *env;
+#ifdef TRACE
+    PyObject *trace;
+#endif
 } Pattern;
 
 typedef struct {
@@ -242,6 +247,9 @@ static void Pattern_dealloc(Pattern* self)
 {
     PyMem_Del(self->prog);
     Py_XDECREF(self->env);
+#ifdef TRACE
+    Py_XDECREF(self->trace);
+#endif
     self->ob_type->tp_free((PyObject*)self);
 }
 
@@ -251,17 +259,26 @@ static PyObject *Pattern_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
     if (self) {
         patprog(self) = NULL;
         patenv(self) = NULL;
+#ifdef TRACE
+        ((Pattern*)self)->trace = NULL;
+#endif
     }
     return self;
 }
 
 static int Pattern_traverse(Pattern *self, visitproc visit, void *arg) {
     Py_VISIT(self->env);
+#ifdef TRACE
+    Py_VISIT(self->trace);
+#endif
     return 0;
 }
 
 static int Pattern_clear(Pattern *self) {
     Py_CLEAR(self->env);
+#ifdef TRACE
+    Py_CLEAR(self->trace);
+#endif
     return 0;
 }
 
@@ -2328,10 +2345,22 @@ static const char *match (const char *o, const char *s, const char *e,
     const Instruction *op = patprog(patt);
     const Instruction *p = op;
     stack->p = &giveup; stack->s = s; stack->caplevel = 0; stack++;
+#ifdef TRACE
+    Py_XDECREF(((Pattern*)patt)->trace);
+    ((Pattern*)patt)->trace = PyList_New(0);
+#endif
     for (;;) {
 #if defined(DEBUG)
         printf("s: |%s| stck: %d c: %d  ", s, stack - stackbase, captop);
         printinst(op, p);
+#endif
+#ifdef TRACE
+        if (((Pattern*)patt)->trace)
+        {
+            PyObject *elem = Py_BuildValue("nn", (p-op), (s-o));
+            if (elem)
+                PyList_Append(((Pattern*)patt)->trace, elem);
+        }
 #endif
         switch ((Opcode)p->i.code) {
             case IEnd: {
@@ -2567,6 +2596,13 @@ Pattern_call(PyObject *self, PyObject *args, PyObject *kw)
  * Module creation - type initialisation, method tables, etc
  * **********************************************************************
  */
+#ifdef TRACE
+static PyMemberDef Pattern_members[] = {
+    {"trace", T_OBJECT, offsetof(Pattern, trace), READONLY},
+    {0}
+};
+#endif
+
 static PyMethodDef Pattern_methods[] = {
     {"dump", (PyCFunction)Pattern_dump, METH_NOARGS,
      "Build a list representing the pattern, for debugging"
@@ -2712,7 +2748,11 @@ static PyTypeObject PatternType = {
     0,                         /* tp_iter */
     0,                         /* tp_iternext */
     Pattern_methods,           /* tp_methods */
+#ifdef TRACE
+    Pattern_members,           /* tp_members */
+#else
     0,                         /* tp_members */
+#endif
     0,                         /* tp_getset */
     0,                         /* tp_base */
     0,                         /* tp_dict */
