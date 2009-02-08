@@ -1,56 +1,61 @@
 from _ppeg import Pattern as P
 
+class Var:
+    def __getattr__(self, name):
+        return P.Var(name)
+V = Var()
+
 EndOfFile = -P(1)
 EndOfLine = P("\r\n") | P("\r") | P("\n")
-Space = P(" ") | P("\t") | P.Var("EndOfLine")
-Comment = P("#") + (-P.Var("EndOfLine") + P(1)) ** 0 + P.Var("EndOfLine")
-Spacing = (P.Var("Space") | P.Var("Comment")) ** 0
+Space = P(" ") | P("\t") | V.EndOfLine
+Comment = P("#") + (-V.EndOfLine + P(1)) ** 0 + V.EndOfLine
+Spacing = (V.Space | V.Comment) ** 0
 
-LEFTARROW = P("<-") + P.Var("Spacing")
-SLASH = P("/") + P.Var("Spacing")
-AND = P("&") + P.Var("Spacing")
-NOT = P("!") + P.Var("Spacing")
-QUESTION = P("?") + P.Var("Spacing")
-STAR = P("*") + P.Var("Spacing")
-PLUS = P("+") + P.Var("Spacing")
-OPEN = P("(") + P.Var("Spacing")
-CLOSE = P(")") + P.Var("Spacing")
-DOT = P(".") + P.Var("Spacing")
+LEFTARROW = P("<-") + V.Spacing
+SLASH = P("/") + V.Spacing
+AND = P("&") + V.Spacing
+NOT = P("!") + V.Spacing
+QUESTION = P("?") + V.Spacing
+STAR = P("*") + V.Spacing
+PLUS = P("+") + V.Spacing
+OPEN = P("(") + V.Spacing
+CLOSE = P(")") + V.Spacing
+DOT = P(".") + V.Spacing
 
 Char = ( P("\\") + P.Set("nrt'\"*[]\\") |
        P("\\") + P.Range("02") + P.Range("07") + P.Range("07") |
        P("\\") + P.Range("07") + P.Range("07") ** -1 |
        -P("\\") + P(1) )
 
-Range = P.Var("Char") + P("-") + P.Var("Char") | P.Var("Char") + P.Var("Spacing")
-Class = P("[") + ( -P("]") + P.Var("Range") ) ** 0 + P("]") + P.Var("Spacing")
-Literal = (P("'") + ( -P("'") + P.Var("Char") ) ** 0 + P("'") + P.Var("Spacing") |
-          P('"') + ( -P('"') + P.Var("Char") ) ** 0 + P('"') + P.Var("Spacing")
+Range = V.Char + P("-") + V.Char | V.Char + V.Spacing
+Class = P("[") + ( -P("]") + V.Range ) ** 0 + P("]") + V.Spacing
+Literal = (P("'") + ( -P("'") + V.Char ) ** 0 + P("'") + V.Spacing |
+          P('"') + ( -P('"') + V.Char ) ** 0 + P('"') + V.Spacing
           )
 
-Identifier = P.Var("IdentStart") + P.Var("IdentCont") ** 0 + P.Var("Spacing")
+Identifier = V.IdentStart + V.IdentCont ** 0 + V.Spacing
 IdentStart = P.Range("azAZ") | P("_")
-IdentCont = P.Var("IdentStart") | P.Range("09")
+IdentCont = V.IdentStart | P.Range("09")
 
-Primary = (P.Var("Identifier") + -P.Var("LEFTARROW") |
-          P.Var("OPEN") + P.Var("Expression") + P.Var("CLOSE") |
-          P.Var("Literal") |
-          P.Var("Class") |
-          P.Var("DOT")) + P.Var("Spacing")
+Primary = (V.Identifier + -V.LEFTARROW |
+          V.OPEN + V.Expression + V.CLOSE |
+          V.Literal |
+          V.Class |
+          V.DOT) + V.Spacing
 
-Suffix = (P.Var("Primary") + 
-          (P.Var("QUESTION") | P.Var("STAR") | P.Var("PLUS")) ** -1 +
-          P.Var("Spacing"))
-Prefix = (P.Var("AND") | P.Var("NOT")) ** -1 + P.Var("Suffix")
-Sequence = P.Var("Prefix") ** 0
-Expression = P.Var("Sequence") + (P.Var("SLASH") + P.Var("Sequence")) ** 0
+Suffix = (V.Primary + 
+          (V.QUESTION | V.STAR | V.PLUS) ** -1 +
+          V.Spacing)
+Prefix = (V.AND | V.NOT) ** -1 + V.Suffix
+Sequence = V.Prefix ** 0
+Expression = V.Sequence + (V.SLASH + V.Sequence) ** 0
 
-Definition = P.Var("Identifier") + P.Var("LEFTARROW") + P.Var("Expression")
+Definition = V.Identifier + V.LEFTARROW + V.Expression
 
-Grammar = P.Var("Spacing") + P.Var("Definition") ** 1 + P.Var("EndOfFile")
+Grammar = V.Spacing + V.Definition ** 1 + V.EndOfFile
 
 PEG = P.Grammar(
-        Grammar,
+        start = "Grammar",
         Grammar = Grammar,
         Definition = Definition,
         Expression = Expression,
