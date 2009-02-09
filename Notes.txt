@@ -1,0 +1,105 @@
+A more Pythonic API
+===================
+
+Fundamental Constructs
+----------------------
+
+There are 3 basic types of pattern:
+
+ - Match N arbitrary characters
+ - Match a specific string
+ - Match a character set
+
+and 2 degenerate cases:
+
+ - Zero-length always matches
+ - Zero-length never matches
+
+There are 4 basic combinations:
+
+ - Concatenation: A then B
+ - Choice: A or B
+ - Negative assertion: A does not match here
+ - Repetition: As many copies of A as possible (0 is acceptable)
+
+and 4 derived combinations:
+
+ - Assertion: A matches here (!!A)
+ - Optional: 0 or 1 copies of A (A / <nothing>)
+ - One or more: At least one copy of A (A A*)
+ - (Non-standard) Until: A until B matches (expr = B / A expr)
+
+Pattern Expressions
+-------------------
+
+Coercions:
+
+ - True: Zero-length always matches
+ - False: Zero-length never matches
+ - N: Matches any N characters (N > 0)
+ - "...": Matches the string ...
+
+The pattern constructor takes any of these types and creates the appropriate
+pattern type from them. Operators automatically coerce their arguments, so
+constructors can commonly be omitted.
+
+Unary operations:
+
+ - Assertion: +A means that A matches here
+ - Negative assertion: -A means that A does not match here
+ - Repetition: A[m:n] means that A matches between m and n times here. If m is
+   omitted, 0 is used, and if n is omitted, infinity is used. So, A[:] or
+   A[0:] is repetition (0 or more), A[1:] is one or more, and A[0:1] is
+   optional. General values for m or n are allowed, but less common (note:
+   initial implementation may disallow general values).
+
+Binary operations:
+
+ - Concatenation: A+B is A concatenated with B
+ - Choice: A|B is A or B
+ - Until: A>>B is A until B
+ - Subtractions: A-B is A as long as B doesn't match here (= -B+A)
+
+Suggestion: Constructor takes multiple arguments and concatenates them.
+
+Captures
+--------
+
+Captures which match a sero-length string:
+
+ - Current position
+ - Constant value
+ - Match argument
+
+Captures which take a pattern and match what the pattern matches
+
+ - The matched string
+ - The matched string, with nested captures replaced by their captured values
+ - A list of all sub-captures
+
+Cross-references
+
+ - Name the list of all sub-captures, but don't capture anything here
+ - A previously named set of captures (0-length match)
+
+Manipulation of captures
+
+ - Fold captures one by one into a function
+ - Call a function with the captures as arguments
+ - Map a function over the captures (not in Lua)
+
+Not needed from Lua:
+
+ - String replacement: use "String {0} with {1} subs".format as fn capture
+ - Table lookup: use lambda x, *y: dct.get(x) as fn capture [1]
+ - Table capture: Python does not have multiple values, so captures are always
+   a list.
+
+[1] It would be nice if unneeded arguments could be dropped automatically...
+    One option is to check for func_code.co_argcount (ignore if it's not
+    available, that would be something like a builtin) and trim the args
+    appropriately (should also check for co_flags=0x04 for *args).
+
+Optional improvements:
+
+Captures could be generated on demand as a generator?
