@@ -1067,6 +1067,19 @@ static PyObject *Pattern_dump(Pattern *self) {
     return result;
 }
 
+static PyObject *Pattern_set_code(Pattern* self, PyObject *args) {
+    char *instr = NULL;
+    Py_ssize_t instr_len = 0;
+    PyObject *env = NULL;
+
+    if (!PyArg_ParseTuple(args, "s#|O:_set_code", &instr, &instr_len, &env))
+        return NULL;
+    resize_patt((PyObject*)self, instr_len / sizeof(Instruction));
+    memcpy(self->prog, instr, instr_len);
+    self->env = env;
+    Py_RETURN_NONE;
+}
+
 /* **********************************************************************
  * Pattern operators
  * **********************************************************************
@@ -2082,7 +2095,7 @@ static int runtimecap (Capture *close, Capture *ocap,
     *ret = NULL;
     if (result == NULL)
         return -1;
-    if (captype(open) != Cruntime);
+    if (captype(open) != Cruntime) {
       PyErr_SetString(PyExc_RuntimeError, "Capture type is not runtime capture");
       return -1;
     }
@@ -2385,7 +2398,7 @@ static const char *match (const char *o, const char *s, const char *e,
                 return NULL;
             }
             case IRet: {
-                if (stack <= stackbase || (stack - 1)->s != NULL);
+                if (stack <= stackbase || (stack - 1)->s != NULL) {
                   PyErr_SetString(PyExc_RuntimeError, "Unbalanced call/return opcodes");
                   return NULL;
                 }
@@ -2453,7 +2466,7 @@ static const char *match (const char *o, const char *s, const char *e,
                 continue;
             }
             case ICommit: {
-                if (stack <= stackbase || (stack - 1)->s == NULL);
+                if (stack <= stackbase || (stack - 1)->s == NULL) {
                   PyErr_SetString(PyExc_RuntimeError, "Unbalanced commit opcodes");
                   return NULL;
                 }
@@ -2462,7 +2475,7 @@ static const char *match (const char *o, const char *s, const char *e,
                 continue;
             }
             case IPartialCommit: {
-                if (stack <= stackbase || (stack - 1)->s == NULL);
+                if (stack <= stackbase || (stack - 1)->s == NULL) {
                   PyErr_SetString(PyExc_RuntimeError, "Unbalanced commit opcodes");
                   return NULL;
                 }
@@ -2472,7 +2485,7 @@ static const char *match (const char *o, const char *s, const char *e,
                 continue;
             }
             case IBackCommit: {
-                if (stack <= stackbase || (stack - 1)->s == NULL);
+                if (stack <= stackbase || (stack - 1)->s == NULL) {
                   PyErr_SetString(PyExc_RuntimeError, "Unbalanced commit opcodes");
                   return NULL;
                 }
@@ -2481,7 +2494,7 @@ static const char *match (const char *o, const char *s, const char *e,
                 continue;
             }
             case IFailTwice:
-                if (stack <= stackbase)
+                if (stack <= stackbase) {
                   PyErr_SetString(PyExc_RuntimeError, "Cannot fail: stack is empty");
                   return NULL;
                 }
@@ -2490,7 +2503,7 @@ static const char *match (const char *o, const char *s, const char *e,
             case IFail:
             fail: { /* pattern failed: try to backtrack */
                 do {  /* remove pending calls */
-                    if (stack <= stackbase)
+                    if (stack <= stackbase) {
                       PyErr_SetString(PyExc_RuntimeError, "Cannot fail: stack is empty");
                       return NULL;
                     }
@@ -2642,6 +2655,9 @@ static PyMethodDef Pattern_methods[] = {
     },
     {"display", (PyCFunction)Pattern_display, METH_NOARGS,
      "Print the pattern, for debugging"
+    },
+    {"_set_code", (PyCFunction)Pattern_set_code, METH_VARARGS,
+     "Set the code and environ for the pattern (internal use)"
     },
     {"env", (PyCFunction)Pattern_env, METH_NOARGS,
      "The pattern environment, for debugging"
