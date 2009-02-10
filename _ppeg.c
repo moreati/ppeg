@@ -2082,7 +2082,10 @@ static int runtimecap (Capture *close, Capture *ocap,
     *ret = NULL;
     if (result == NULL)
         return -1;
-    assert(captype(open) == Cruntime);
+    if (captype(open) != Cruntime);
+      PyErr_SetString(PyExc_RuntimeError, "Capture type is not runtime capture");
+      return -1;
+    }
     fn = env2val(patt, open->idx);
     if (fn == NULL) {
         Py_DECREF(result);
@@ -2364,19 +2367,28 @@ static const char *match (const char *o, const char *s, const char *e,
 #endif
         switch ((Opcode)p->i.code) {
             case IEnd: {
-                assert(stack == stackbase + 1);
+                if (stack != stackbase + 1) {
+                  PyErr_SetString(PyExc_RuntimeError, "Pattern end with unbalanced stack");
+                  return NULL;
+                }
                 capture[captop].kind = Cclose;
                 capture[captop].s = NULL;
                 return s;
             }
             case IGiveup: {
-                assert(stack == stackbase);
+                if (stack != stackbase) {
+                  PyErr_SetString(PyExc_RuntimeError, "Giveup instruction found in pattern");
+                  return NULL;
+                }
                 /* Make sure we don't have a pending error */
                 PyErr_Clear();
                 return NULL;
             }
             case IRet: {
-                assert(stack > stackbase && (stack - 1)->s == NULL);
+                if (stack <= stackbase || (stack - 1)->s != NULL);
+                  PyErr_SetString(PyExc_RuntimeError, "Unbalanced call/return opcodes");
+                  return NULL;
+                }
                 p = (--stack)->p;
                 continue;
             }
@@ -2441,32 +2453,47 @@ static const char *match (const char *o, const char *s, const char *e,
                 continue;
             }
             case ICommit: {
-                assert(stack > stackbase && (stack - 1)->s != NULL);
+                if (stack <= stackbase || (stack - 1)->s == NULL);
+                  PyErr_SetString(PyExc_RuntimeError, "Unbalanced commit opcodes");
+                  return NULL;
+                }
                 stack--;
                 p += p->i.offset;
                 continue;
             }
             case IPartialCommit: {
-                assert(stack > stackbase && (stack - 1)->s != NULL);
+                if (stack <= stackbase || (stack - 1)->s == NULL);
+                  PyErr_SetString(PyExc_RuntimeError, "Unbalanced commit opcodes");
+                  return NULL;
+                }
                 (stack - 1)->s = s;
                 (stack - 1)->caplevel = captop;
                 p += p->i.offset;
                 continue;
             }
             case IBackCommit: {
-                assert(stack > stackbase && (stack - 1)->s != NULL);
+                if (stack <= stackbase || (stack - 1)->s == NULL);
+                  PyErr_SetString(PyExc_RuntimeError, "Unbalanced commit opcodes");
+                  return NULL;
+                }
                 s = (--stack)->s;
                 p += p->i.offset;
                 continue;
             }
             case IFailTwice:
-                assert(stack > stackbase);
+                if (stack <= stackbase)
+                  PyErr_SetString(PyExc_RuntimeError, "Cannot fail: stack is empty");
+                  return NULL;
+                }
                 stack--;
                 /* go through */
             case IFail:
             fail: { /* pattern failed: try to backtrack */
                 do {  /* remove pending calls */
-                    assert(stack > stackbase);
+                    if (stack <= stackbase)
+                      PyErr_SetString(PyExc_RuntimeError, "Cannot fail: stack is empty");
+                      return NULL;
+                    }
                     s = (--stack)->s;
                 } while (s == NULL);
                 captop = stack->caplevel;
@@ -2507,7 +2534,10 @@ static const char *match (const char *o, const char *s, const char *e,
             }
             case ICloseCapture: {
                 const char *s1 = s - getoff(p);
-                assert(captop > 0);
+                if (captop <= 0) {
+                    PyErr_SetString(PyExc_RuntimeError, "Close capture with no pending captures");
+                    return NULL;
+                }
                 if (capture[captop - 1].siz == 0 &&
                         s1 - capture[captop - 1].s < UCHAR_MAX) {
                     capture[captop - 1].siz = s1 - capture[captop - 1].s + 1;
@@ -2535,7 +2565,8 @@ static const char *match (const char *o, const char *s, const char *e,
 #if 0
                     capture = doublecap(L, capture, captop, ptop);
 #else
-                    assert(0);
+                    PyErr_SetString(PyExc_RuntimeError, "Capture stack overflow");
+                    return NULL;
 #endif
                     capsize = 2 * captop;
                 }
@@ -2546,7 +2577,9 @@ static const char *match (const char *o, const char *s, const char *e,
                 PyErr_SetString(PyExc_RuntimeError, "Reference to rule outside a grammar");
                 return NULL;
             }
-            default: assert(0); return NULL;
+            default:
+                PyErr_SetString(PyExc_RuntimeError, "Unknown opcode");
+                return NULL;
         }
     }
 }
