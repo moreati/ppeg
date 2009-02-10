@@ -103,3 +103,15 @@ Not needed from Lua:
 Optional improvements:
 
 Captures could be generated on demand as a generator?
+
+Grammars
+--------
+
+Open calls to named PEGs can be compiled using Var.Name (this is handled by
+having a Var object whose class has a getattr which compiles an open call).
+
+class MyGrammar(PEG):
+    Expr = ... pattern expr ...
+    Primary = Var.Expr | ...
+
+
