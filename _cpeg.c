@@ -142,6 +142,13 @@ const char *run (Instruction *prog, const char *target, const char *end)
     void *capture = NULL;
     Instruction *instr;
 
+#if 0
+    printf("sizeof(Instruction) = %d\n", sizeof(Instruction));
+    for (instr = prog; instr->instr != iEnd; ++instr) {
+	printf("Instr: %s, offset: %d\n", opdata[instr->instr].name, instr->offset);
+    }
+#endif
+
     for (;;) {
 	if (pc == FAIL) {
 	    /* Machine is in fail state */
@@ -162,7 +169,7 @@ const char *run (Instruction *prog, const char *target, const char *end)
 	instr = &prog[pc];
 #if 0
 	printf("pc = %d, pos = %d, instr = %s\n", pc, pos-target, 
-		instruction_names[instr->instr]);
+		opdata[instr->instr].name);
 #endif
 	switch (instr->instr) {
             case iEnd:
@@ -264,7 +271,27 @@ const char *run (Instruction *prog, const char *target, const char *end)
     return pos;
 }
 
+static PyObject *cpeg_match (PyObject *self, PyObject *args) {
+    void *instr;
+    int instr_len;
+    const char *str;
+    int str_len;
+    const char *result;
+
+    if (!PyArg_ParseTuple(args, "s#s#:match", &instr, &instr_len, &str, &str_len))
+        return NULL;
+
+    result = run(instr, str, str + str_len);
+
+    if (result)
+	return Py_BuildValue("i", result - str);
+
+    Py_RETURN_NONE;
+}
+
 static PyMethodDef _cpeg_methods[] = {
+    {"match", (PyCFunction)cpeg_match, METH_VARARGS,
+	"Match a string to the supplied PEG"},
     {NULL}  /* Sentinel */
 };
 
