@@ -18,3 +18,29 @@ instr = ''.join([struct.pack("iii28x", a, b, ord(c) if isinstance(c, str) else c
                  for (a,b,c) in code])
 
 print _cpeg.match(instr, "...Omega...")
+import time
+txt = open("kjv10.txt").read()
+print "CPEG"
+for i in range(10):
+    start = time.clock()
+    print _cpeg.match(instr, txt),
+    print "%.2f sec" % (time.clock() - start)
+
+print "String.find"
+for i in range(10):
+    start = time.clock()
+    print txt.find("Omega"),
+    print "%.2f sec" % (time.clock() - start)
+
+print "re.find"
+import re
+r = re.compile(r"Omega")
+for i in range(10):
+    start = time.clock()
+    m = r.search(txt)
+    if m:
+        print m.end(),
+    else:
+        print "Not found",
+    print "%.2f sec" % (time.clock() - start)
+
