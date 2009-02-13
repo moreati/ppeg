@@ -44,7 +44,7 @@ OpData opdata[] = {
     { "End", 0 },
     { "Char", 1 /* Character */ },
     { "Jump", 0 },
-    { "Choice", 0 },
+    { "Choice", 4 /* Count */ },
     { "Call", 0 },
     { "Return", 0 },
     { "Commit", 0 },
@@ -85,10 +85,15 @@ typedef struct {
 	unsigned int count;
 	Py_UNICODE character;
 	Charset cset;
-	void *capture_info;
+	struct { int type : 2; int kind : 6; } cap;
 	unsigned int rule;
     };
 } Instruction;
+
+#define CAPTYPE_OPEN 0
+#define CAPTYPE_CLOSE 1
+#define CAPTYPE_FULL 2
+#define CAPKIND_POSITION 0
 
 typedef struct stackentry {
     enum { ReturnData, BacktrackData } entry_type;
@@ -97,7 +102,7 @@ typedef struct stackentry {
 	struct {
 	    unsigned int alternative;
 	    const Py_UNICODE *pos;
-	    void *capture_info;
+	    int capstackpos;
 	};
     };
 } StackEntry;
@@ -114,7 +119,7 @@ static int stacksize = 0;
 	(stack[stackpos].entry_type = BacktrackData), \
 	(stack[stackpos].alternative = (alt)), \
 	(stack[stackpos].pos = (psn)), \
-	(stack[stackpos].capture_info = (cap)))
+	(stack[stackpos].capstackpos = (cap)))
 #define STACK_EMPTY() (stackpos == -1)
 #define STACK_TOPTYPE() (stack[stackpos].entry_type)
 #define STACK_POP() (--stackpos)
@@ -132,6 +137,8 @@ void Stack_Ensure (void) {
 
 typedef struct capstackentry {
     const Py_UNICODE *pos;
+    unsigned int type : 2;
+    unsigned int kind : 6;
 } CapStackEntry;
 
 static CapStackEntry *capstack = NULL;
@@ -139,8 +146,10 @@ static int capstackpos = -1;
 static int capstacksize = 0;
 
 #define CAPSTACK_CHUNK (100)
-#define CAPSTACK_PUSH(psn) (CapStack_Ensure(), (++capstackpos), \
-	(capstack[capstackpos].pos = (psn)))
+#define CAPSTACK_PUSH(psn,typ,knd) (CapStack_Ensure(), (++capstackpos), \
+	(capstack[capstackpos].pos = (psn)), \
+	(capstack[capstackpos].type = (typ)), \
+	(capstack[capstackpos].kind = (knd)))
 #define CAPSTACK_EMPTY() (capstackpos == -1)
 #define CAPSTACK_POP() (--capstackpos)
 #define CAPSTACK_TOP() (capstack[capstackpos])
@@ -164,7 +173,6 @@ const Py_UNICODE *run (Instruction *prog, const Py_UNICODE *target, const Py_UNI
 {
     unsigned int pc = 0;
     const Py_UNICODE *pos = target;
-    void *capture = NULL;
     Instruction *instr;
 
 #if 0
@@ -185,7 +193,7 @@ const Py_UNICODE *run (Instruction *prog, const Py_UNICODE *target, const Py_UNI
 		/* Backtrack to stacked alternative */
 		pc = STACK_TOP().alternative;
 		pos = STACK_TOP().pos;
-		capture = STACK_TOP().capture_info;
+		capstackpos = STACK_TOP().capstackpos;
 	    }
 	    /* Pop one stack entry */
 	    STACK_POP();
@@ -215,14 +223,14 @@ const Py_UNICODE *run (Instruction *prog, const Py_UNICODE *target, const Py_UNI
 		pc += instr->offset;
 		break;
             case iChoice:
-		STACK_PUSHALT(pc + instr->offset, pos - instr->count, capture);
+		STACK_PUSHALT(pc + instr->offset, pos - instr->count, capstackpos);
 		pc += 1;
 		break;
             case iPartialCommit:
 		if (STACK_TOPTYPE() == BacktrackData) {
 		    /* Replace the backtrack data on the top of the stack */
 		    STACK_TOP().pos = pos;
-		    STACK_TOP().capture_info = capture;
+		    STACK_TOP().capstackpos = capstackpos;
 		} else {
 		    /* Cannot happen */
 		    assert(0);
@@ -233,7 +241,7 @@ const Py_UNICODE *run (Instruction *prog, const Py_UNICODE *target, const Py_UNI
 		if (STACK_TOPTYPE() == BacktrackData) {
 		    /* Pop the position and capture info, but jump */
 		    pos = STACK_TOP().pos;
-		    capture = STACK_TOP().capture_info;
+		    capstackpos = STACK_TOP().capstackpos;
 		    STACK_POP();
 		} else {
 		    /* Cannot happen */
@@ -243,6 +251,7 @@ const Py_UNICODE *run (Instruction *prog, const Py_UNICODE *target, const Py_UNI
                 break;
             case iCapture:
 		/* TODO: Add capture info */
+		CAPSTACK_PUSH(pos, instr->cap.type, instr->cap.kind);
 		pc += 1;
 		break;
             case iFailTwice:
@@ -308,15 +317,81 @@ static PyObject *cpeg_match (PyObject *self, PyObject *args) {
 
     result = run(instr, str, str + str_len);
 
-    if (result)
+    if (result) {
+	if (!CAPSTACK_EMPTY())
+	    printf("Capstack dump: %d entries\n", capstackpos+1);
+	while (!CAPSTACK_EMPTY()) {
+	    printf("%d %d %d\n", CAPSTACK_TOP().type, CAPSTACK_TOP().kind, CAPSTACK_TOP().pos - str);
+	    CAPSTACK_POP();
+	}
 	return Py_BuildValue("i", result - str);
+    }
 
     Py_RETURN_NONE;
+}
+
+static PyObject *cpeg_pack (PyObject *self, PyObject *args) {
+    Instruction instr = { 0 };
+    int instr_code;
+    int offset = 0;
+    PyObject *o1 = NULL;
+    PyObject *o2 = NULL;
+
+    if (!PyArg_ParseTuple(args, "i|iOO:pack", &instr_code, &offset, &o1, &o2))
+        return NULL;
+
+    instr.instr = instr_code;
+    instr.offset = offset;
+    switch (instr_code) {
+	case iChar: {
+	    Py_UNICODE *ch = NULL;
+	    if (o1 == NULL) {
+		PyErr_SetString(PyExc_RuntimeError, "Packing a char instruction: needs a character");
+		return NULL;
+	    }
+	    if ((ch = PyUnicode_AsUnicode(o1)) == NULL)
+		return NULL;
+	    instr.character = *ch;
+	    break;
+	}
+	case iCapture: {
+	    long type = 0;
+	    long kind = 0;
+	    if (o1 != NULL && (type = PyInt_AsLong(o1)) == -1 && PyErr_Occurred())
+		return NULL;
+	    if (o2 != NULL && (kind = PyInt_AsLong(o2)) == -1 && PyErr_Occurred())
+		return NULL;
+	    instr.cap.type = type;
+	    instr.cap.kind = kind;
+	    break;
+	}
+	case iAny:
+	case iChoice: {
+	    long count = 0;
+	    if (o1 != NULL && (count = PyInt_AsLong(o1)) == -1 && PyErr_Occurred())
+		return NULL;
+	    instr.count = count;
+	    break;
+	}
+	case iCharset:
+	    break;
+	case iOpenCall: {
+	    long rule = 0;
+	    if (o1 != NULL && (rule = PyInt_AsLong(o1)) == -1 && PyErr_Occurred())
+		return NULL;
+	    instr.rule = rule;
+	    break;
+	}
+    }
+
+    return PyString_FromStringAndSize((const char *)&instr, sizeof(instr));
 }
 
 static PyMethodDef _cpeg_methods[] = {
     {"match", (PyCFunction)cpeg_match, METH_VARARGS,
 	"Match a string to the supplied PEG"},
+    {"pack", (PyCFunction)cpeg_pack, METH_VARARGS,
+	"Pack a PEG opcode into a byte array"},
     {NULL}  /* Sentinel */
 };
 
