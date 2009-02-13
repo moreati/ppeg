@@ -130,6 +130,31 @@ void Stack_Ensure (void) {
     }
 }
 
+typedef struct capstackentry {
+    const Py_UNICODE *pos;
+} CapStackEntry;
+
+static CapStackEntry *capstack = NULL;
+static int capstackpos = -1;
+static int capstacksize = 0;
+
+#define CAPSTACK_CHUNK (100)
+#define CAPSTACK_PUSH(psn) (CapStack_Ensure(), (++capstackpos), \
+	(capstack[capstackpos].pos = (psn)))
+#define CAPSTACK_EMPTY() (capstackpos == -1)
+#define CAPSTACK_POP() (--capstackpos)
+#define CAPSTACK_TOP() (capstack[capstackpos])
+
+void CapStack_Ensure (void) {
+    /* At start, capstack == NULL, capstacksize == 0, capstackpos == -1,
+     * so we allocate first time
+     */
+    if (capstackpos + 1 >= capstacksize) {
+	capstacksize += STACK_CHUNK;
+	capstack = realloc(capstack, capstacksize * sizeof(CapStackEntry));
+    }
+}
+
 #define FAIL ((unsigned int)(-1))
 
 /* Returns a pointer to the first unmatched character, or NULL if the match
