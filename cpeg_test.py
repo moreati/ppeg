@@ -17,9 +17,9 @@ code = [(_cpeg.Call, 2, 0),
 instr = ''.join([struct.pack("iii28x", a, b, ord(c) if isinstance(c, str) else c)
                  for (a,b,c) in code])
 
-print _cpeg.match(instr, "...Omega...")
+print _cpeg.match(instr, u"...Omega...")
 import time
-txt = open("kjv10.txt").read()
+txt = open("kjv10.txt").read().decode('ascii')
 print "CPEG"
 for i in range(10):
     start = time.clock()

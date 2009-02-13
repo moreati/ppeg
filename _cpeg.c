@@ -83,7 +83,7 @@ typedef struct {
     signed int offset;
     union {
 	unsigned int count;
-	char character;
+	Py_UNICODE character;
 	Charset cset;
 	void *capture_info;
 	unsigned int rule;
@@ -96,7 +96,7 @@ typedef struct stackentry {
 	unsigned int ret;
 	struct {
 	    unsigned int alternative;
-	    const char *pos;
+	    const Py_UNICODE *pos;
 	    void *capture_info;
 	};
     };
@@ -135,10 +135,10 @@ void Stack_Ensure (void) {
 /* Returns a pointer to the first unmatched character, or NULL if the match
  * failed
  */
-const char *run (Instruction *prog, const char *target, const char *end)
+const Py_UNICODE *run (Instruction *prog, const Py_UNICODE *target, const Py_UNICODE *end)
 {
     unsigned int pc = 0;
-    const char *pos = target;
+    const Py_UNICODE *pos = target;
     void *capture = NULL;
     Instruction *instr;
 
@@ -274,11 +274,11 @@ const char *run (Instruction *prog, const char *target, const char *end)
 static PyObject *cpeg_match (PyObject *self, PyObject *args) {
     void *instr;
     int instr_len;
-    const char *str;
+    const Py_UNICODE *str;
     int str_len;
-    const char *result;
+    const Py_UNICODE *result;
 
-    if (!PyArg_ParseTuple(args, "s#s#:match", &instr, &instr_len, &str, &str_len))
+    if (!PyArg_ParseTuple(args, "s#u#:match", &instr, &instr_len, &str, &str_len))
         return NULL;
 
     result = run(instr, str, str + str_len);
