@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <stdarg.h>
 
-#include <python.h>
+#include <Python.h>
 
 typedef enum {
     iEnd = 0,
