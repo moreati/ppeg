@@ -1,12 +1,24 @@
+import io
+import os
+
 from setuptools import setup, Extension
+
+
+def read(fname, encoding='utf-8'):
+    here = os.path.dirname(__file__)
+    with io.open(os.path.join(here, fname), encoding=encoding) as f:
+        return f.read()
+
 
 setup (
     name='PPeg',
-    version='0.9',
+    version='0.9.1',
     description="A Python port of Lua's LPeg pattern matching library",
+    long_description=read('README.rst'),
     url='https://bitbucket.org/pmoore/ppeg',
 
-    author='Paul Moore',
+    author='Alex Willmer',
+    author_email='alex@moreati.org.uk',
 
     license='MIT',
 

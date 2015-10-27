@@ -2,6 +2,7 @@ graft test
 
 include cpeg.c
 
+include *.rst
 include LICENSE
 include Notes.txt
 
