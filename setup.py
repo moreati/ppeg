@@ -1,7 +1,7 @@
 from distutils.core import setup, Extension
 
 setup (
-    name = 'ppeg',
+    name='PPeg',
     version='0.9',
     description="A Python port of Lua's LPeg pattern matching library",
     url='https://bitbucket.org/pmoore/ppeg',
