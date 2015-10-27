@@ -20,7 +20,7 @@ setup (
 
     keywords='parsing peg grammar regex',
 
-    ext_modules = [Extension('_ppeg', ['_ppeg.c']),
+    ext_modules = [Extension('_ppeg', ['_ppeg.c', 'lpeg.c']),
                    Extension('_cpeg', ['_cpeg.c'])],
     py_modules=[
         'PythonImpl',
