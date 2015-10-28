@@ -15,7 +15,7 @@ setup (
     version='0.9.1',
     description="A Python port of Lua's LPeg pattern matching library",
     long_description=read('README.rst'),
-    url='https://bitbucket.org/pmoore/ppeg',
+    url='https://github.com/moreati/ppeg',
 
     author='Alex Willmer',
     author_email='alex@moreati.org.uk',
