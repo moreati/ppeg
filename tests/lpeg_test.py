@@ -8,7 +8,6 @@ the ppeg port of lpeg.
 # Shorthand for the pattern type
 from _ppeg import Pattern as P
 import sys
-from nose.tools import *
 
 # General tests for the ppeg library
 def test_type():
@@ -148,8 +147,8 @@ def test_initial_matches():
     assert a == ["two", "words", "one", "more"]
     assert basiclookfor((+b + 1) + P.CapP())("  (  (a)").pos == 6
     m = (P.Cap(digit**1 + P.CapC("d")) | P.Cap(letter**1 + P.CapC("l")))("123")
-    assert_equals(m.captures, ["123", "d"])
+    assert m.captures == ["123", "d"]
     m = (P.Cap(digit**1) + "d" + (-1) | P.Cap(letter**1 + P.CapC("l")))("123d")
-    assert_equals(m.captures, ["123"])
+    assert m.captures == ["123"]
     m = (P.Cap(digit**1 + P.CapC("d")) | P.Cap(letter**1 + P.CapC("l")))("abcd")
-    assert_equals(m.captures, ["abcd", "l"])
+    assert m.captures == ["abcd", "l"]
