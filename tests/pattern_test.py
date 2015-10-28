@@ -1,9 +1,11 @@
 from __future__ import with_statement
 from unittest import TestCase, main
-from _ppeg import Pattern as P
 import sys
 from cStringIO import StringIO
 from contextlib import contextmanager
+
+from _ppeg import Pattern as P
+
 
 @contextmanager
 def stdout(fd):

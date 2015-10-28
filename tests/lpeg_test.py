@@ -5,9 +5,10 @@ This is a direct port of as much of the lpeg test suite as makes sense for
 the ppeg port of lpeg.
 """
 
-# Shorthand for the pattern type
-from _ppeg import Pattern as P
 import sys
+
+from _ppeg import Pattern as P
+
 
 # General tests for the ppeg library
 def test_type():
