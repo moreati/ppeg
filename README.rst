@@ -6,6 +6,9 @@ PPeg
 `Parsing Expression Grammars`_ (PEGs).
 It's a port of the `LPeg`_ library from Lua.
 
+.. warning::
+    PPeg is still experimental. The API and semantics are not stable.
+
 .. _Parsing Expression Grammars: https://en.wikipedia.org/wiki/Parsing_expression_grammar
 .. _LPeg: http://www.inf.puc-rio.br/~roberto/lpeg/
 
