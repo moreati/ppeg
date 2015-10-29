@@ -104,6 +104,7 @@ static int resize_patt(PyObject *patt, Py_ssize_t n) {
         return -1;
     }
 
+    memset(p, 0, (sizeof(Instruction) * n+1));
     setinst(p + n, IEnd, 0);
     patlen(patt) = n + 1;
     return 0;
@@ -435,6 +436,7 @@ static int Pattern_init(PyObject *self, PyObject *args, PyObject *kwds)
         Instruction *p = PyMem_New(Instruction, 1);
         if (p == NULL)
             return -1;
+        memset(p, 0, sizeof(Instruction));
         setinst(p, IEnd, 0);
         patprog(self) = p;
         patlen(self) = 1;
