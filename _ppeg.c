@@ -1547,13 +1547,10 @@ static PyObject *Pattern_or (PyObject *self, PyObject *other) {
         Py_INCREF(Py_NotImplemented);
         return Py_NotImplemented;
     }
-
-
     if (isfail(patprog(self))) {
         Py_DECREF(self);
         return other; /* fail / a == a */
     }
-
     if (isfail(patprog(other)) || issucc(patprog(self))) {
         Py_DECREF(other);
         return self; /* a / fail == a; true / a == true */
@@ -2604,7 +2601,7 @@ Pattern_call(PyObject *self, PyObject *args, PyObject *kw)
 {
     char *str;
     Py_ssize_t len;
-    Capture *cc = malloc(IMAXCAPTURES * sizeof(Capture));
+    Capture *cc;
     const char *e;
     PyObject *result;
     Match *res;
@@ -2622,9 +2619,11 @@ Pattern_call(PyObject *self, PyObject *args, PyObject *kw)
     if (result == NULL)
         return NULL;
 
+    cc = malloc(IMAXCAPTURES * sizeof(Capture));
     res = (Match *)result;
     e = match(str, str, str + len, self, cc, args);
     if (e == 0) {
+        free(cc);
         if (PyErr_Occurred()) {
             Py_DECREF(result);
             return NULL;
