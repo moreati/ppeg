@@ -377,15 +377,15 @@ static int init_range(PyObject *self, char *str, Py_ssize_t len) {
 
 static Py_ssize_t fill_any(PyObject *self, Py_ssize_t n, int extra, int offset) {
     Instruction *p;
-    Instruction *start;
+    Instruction *p1;
     if (resize_patt(self, (n - 1) / UCHAR_MAX + extra + 1) == -1)
         return -1;
-    start = patprog(self);
-    p = start + offset;
+    p = patprog(self);
+    p1 = p + offset;
     for (; n > UCHAR_MAX; n -= UCHAR_MAX)
-        setinstaux(p++, IAny, 0, UCHAR_MAX);
-    setinstaux(p++, IAny, 0, n);
-    return (p - start);
+        setinstaux(p1++, IAny, 0, UCHAR_MAX);
+    setinstaux(p1++, IAny, 0, n);
+    return (p1 - p);
 }
 
 static int init_any(PyObject *self, Py_ssize_t n) {
