@@ -1529,7 +1529,7 @@ static PyObject *separateparts (PyObject *self, PyObject *other,
         init += sizefirst;
         setinstaux(p + init, IChoice, sp - sizefirst + 1, 1);
         init++;
-        copypatt(p + init, p1 + sizefirst + 1, sp - sizefirst - 1);
+        copypatt(p + init, p1 + sizefirst, sp - sizefirst - 1);
         init += sp - sizefirst - 1;
         setinst(p + init, ICommit, *size - (end - 1));
     }

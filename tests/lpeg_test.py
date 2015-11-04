@@ -230,10 +230,10 @@ def test_foo():
 
 # test for alternation optimization
 def test_alternation_optimization():
-    #assert match(P("a")**1 | "ab" | P("x")**0, "ab").pos == 1 # RuntimeError unbalanced stack
-    #assert match((P("a")**1 | "ab" | P("x")**0 + 1)**0, "ab").pos == 2 
+    assert match(P("a")**1 | "ab" | P("x")**0, "ab").pos == 1
+    assert match((P("a")**1 | "ab" | P("x")**0 + 1)**0, "ab").pos == 2
     assert match(P("ab") | "cd" | "" | "cy" | "ak", "98").pos == 0
-    #assert match(P("ab") | "cd" | "ax" | "cy", "ax").pos == 2 RuntimeError unbalanced stack
+    assert match(P("ab") | "cd" | "ax" | "cy", "ax").pos == 2
     assert match("a" + P("b")**0 + "c"  | "cd" | "ax" | "cy", "ax").pos == 2
     assert match((P("ab") | "cd" | "ax" | "cy")**0, "ax").pos == 2
     assert match(P(1) + "x" | P.Set("") + "xu" | "ay", "ay").pos == 2
@@ -246,12 +246,12 @@ def test_alternation_optimization():
     assert match("ab" | P.Set("abc") + P("y")**0 + "x" | "cde" | "aka", "aka").pos == 3
     assert match("ab" | P.Set("abc") + P("y")**0 + "x" | "cde" | "aka", "cde").pos == 3
     assert match("ab" | P.Set("abc") + P("y")**0 + "x" | "ide" | P.Set("ab") + "ka", "aka").pos == 3
-    #assert match("ab" | P.Set("abc") + P("y")**0 + "x" | "ide" | P.Set("ab") + "ka", "ax").pos == 2 -1
+    assert match("ab" | P.Set("abc") + P("y")**0 + "x" | "ide" | P.Set("ab") + "ka", "ax").pos == 2
     assert match(P(1) + "x" | "cde" | P.Set("ab") + "ka", "aka").pos == 3
     assert match(P(1) + "x" | "cde" | P(1) + "ka", "aka").pos == 3
     assert match(P(1) + "x" | "cde" | P(1) + "ka", "cde").pos == 3
-    #assert match(P("eb") | "cd" | P("e")**0 | "x", "ee").pos == 2 unbalanced stack
-    #assert match(P("ab") | "cd" | P("e")**0 | "x", "abcd").pos == 2 unbalanced stack
+    assert match(P("eb") | "cd" | P("e")**0 | "x", "ee").pos == 2
+    assert match(P("ab") | "cd" | P("e")**0 | "x", "abcd").pos == 2
     assert match(P("ab") | "cd" | P("e")**0 | "x", "eeex").pos == 3
     assert match(P("ab") | "cd" | P("e")**0 | "x", "cd").pos == 2
     assert match(P("ab") | "cd" | P("e")**0 | "x", "x").pos == 0
