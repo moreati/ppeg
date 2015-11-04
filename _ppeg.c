@@ -375,12 +375,13 @@ static int init_range(PyObject *self, char *str, Py_ssize_t len) {
     return 0;
 }
 
-static Py_ssize_t fill_any(PyObject *self, Py_ssize_t n, int extra) {
+static Py_ssize_t fill_any(PyObject *self, Py_ssize_t n, int extra, int offset) {
     Instruction *p;
     Instruction *start;
     if (resize_patt(self, (n - 1) / UCHAR_MAX + extra + 1) == -1)
         return -1;
-    start = p = patprog(self);
+    start = patprog(self);
+    p = start + offset;
     for (; n > UCHAR_MAX; n -= UCHAR_MAX)
         setinstaux(p++, IAny, 0, UCHAR_MAX);
     setinstaux(p++, IAny, 0, n);
@@ -395,7 +396,7 @@ static int init_any(PyObject *self, Py_ssize_t n) {
         /* Nothing more to do */
     }
     else if (n > 0) {
-        if (fill_any(self, n, 0) == -1)
+        if (fill_any(self, n, 0, 0) == -1)
             return -1;
     }
     else if (-n <= UCHAR_MAX) {
@@ -407,7 +408,7 @@ static int init_any(PyObject *self, Py_ssize_t n) {
     else {
         int offset = 2;  /* space for IAny & IChoice */
         Instruction *p;
-        offset = fill_any(self, -n - UCHAR_MAX, 3);
+        offset = fill_any(self, -n - UCHAR_MAX, 3, offset);
         if (offset == -1)
             return -1;
         p = patprog(self);

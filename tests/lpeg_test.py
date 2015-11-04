@@ -212,8 +212,8 @@ def test_any(n):
     assert n < 4 or match(P(n) | "xxx", x_1).pos == 3
     assert match(P.Cap(P(n)), x).captures == [x]
     #assert match(P.Cap(P.Cap(P(n))), x).captures == [x]
-    #assert match(P(-n), x_1).pos == 0 #fails at n=256
-    #assert not match(P(-n), x) #fails at n=256
+    assert match(P(-n), x_1).pos == 0
+    assert not match(P(-n), x)
     #assert n < 13 or match(P.CapC(20) + ((n - 13) + P(10)) + 3, x).pos == 19
     n3 = n // 3
     #assert match(n3 + P.CapP() + n3 + n3, x).pos == n3
