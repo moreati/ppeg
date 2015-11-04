@@ -554,9 +554,9 @@ void set_error_id(PyObject *exc, const char *format, PyObject *id) {
     if (id) {
         str = PyObject_Str(id);
         s = PyString_AS_STRING(str);
+        Py_DECREF(str);
     }
     PyErr_Format(exc, format, s);
-    Py_DECREF(str);
 }
 
 /* Return: -1=error, 0=possible infinite loop, 1=valid */
