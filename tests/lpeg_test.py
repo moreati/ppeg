@@ -10,6 +10,10 @@ import sys
 from _ppeg import Pattern as P
 
 
+def match(pattern, string):
+    return pattern(string)
+
+
 # General tests for the ppeg library
 def test_type():
     assert type("alo") != P
@@ -19,36 +23,24 @@ def test_type():
 
 # Tests for some basic optimizations
 def test_basic_opt_choice():
-    p = P.Fail() | P.Match("a")
-    assert p("a").pos == 1
-    p = P() | P.Match("a")
-    assert p("a").pos == 0
-    p = P.Match("a") | P.Fail()
-    assert not p("b")
-    p = P.Match("a") | P()
-    assert p("b").pos == 0
+    assert match(P.Fail() | P.Match("a"), "a").pos == 1
+    assert match(P() | P.Match("a"), "a").pos == 0
+    assert not match(P.Match("a") | P.Fail(), "b")
+    assert match(P.Match("a") | P(), "b").pos == 0
 
 
 def test_basic_opt_concat():
-    p = P.Fail() + P.Match("a")
-    assert not p("a")
-    p = P() + P.Match("a")
-    assert p("a").pos == 1
-    p = P.Match("a") + P.Fail()
-    assert not p("a")
-    p = P.Match("a") + P()
-    assert p("a").pos == 1
+    assert not match(P.Fail() + P.Match("a"), "a")
+    assert match(P() + P.Match("a"), "a").pos == 1
+    assert not match(P.Match("a") + P.Fail(), "a")
+    assert match(P.Match("a") + P(), "a").pos == 1
 
 
 def test_basic_opt_assert():
-    p = +P.Fail() + P.Match("a")
-    assert not p("a")
-    p = +P() + P.Match("a")
-    assert p("a").pos == 1
-    p = P.Match("a") + +P.Fail()
-    assert not p("a")
-    p = P.Match("a") + +P()
-    assert p("a").pos == 1
+    assert not match(+P.Fail() + P.Match("a"), "a")
+    assert match(+P() + P.Match("a"), "a").pos == 1
+    assert not match(P.Match("a") + +P.Fail(), "a")
+    assert match(P.Match("a") + +P(), "a").pos == 1
 
 
 # Locale tests not included yet
