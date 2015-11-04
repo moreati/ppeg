@@ -214,9 +214,9 @@ def test_any(n):
     #assert match(P.Cap(P.Cap(P(n))), x).captures == [x]
     assert match(P(-n), x_1).pos == 0
     assert not match(P(-n), x)
-    #assert n < 13 or match(P.CapC(20) + ((n - 13) + P(10)) + 3, x).pos == 19
+    assert n < 13 or match(P.CapC(20) + ((n - 13) + P(10)) + 3, x).captures == [20]
     n3 = n // 3
-    #assert match(n3 + P.CapP() + n3 + n3, x).pos == n3
+    assert match(n3 + P.CapP() + n3 + n3, x).captures == [n3]
 
 def test_foo():
     assert match(P(0), "x").pos == 0
