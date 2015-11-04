@@ -1,4 +1,4 @@
-# -*- coding: latin1 -*-
+# -*- coding: utf-8 -*-
 """A port of the lpeg test suite to ppeg.
 
 This is a direct port of as much of the lpeg test suite as makes sense for
