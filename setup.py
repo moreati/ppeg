@@ -12,7 +12,7 @@ def read(fname, encoding='utf-8'):
 
 setup (
     name='PPeg',
-    version='0.9.2',
+    version='0.9.3',
     description="A Python port of Lua's LPeg pattern matching library",
     long_description=read('README.rst'),
     url='https://github.com/moreati/ppeg',
