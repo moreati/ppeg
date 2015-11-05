@@ -1,6 +1,19 @@
 Changelog
 =========
 
+0.9.3 (2015-11-05)
+------------------
+
+* Added support for Pattern.Cap(n) and Pattern.Cap(s),
+  as shortcuts for Pattern.Cap(Pattern(n)) and Pattern.Cap(Pattern(s))
+* Fixed uninitialized memory in Pattern objects
+* Fixed matching of Pattern(-n) for n > 255
+* Fixed memory leaks found with clang
+* Fixed some cases when combining two patterns with p1 | p2
+* Added Tox configutation for running the test suite under Python 2.6 & 2.7
+* Moved the test suite to tests/*.py
+* Ported more of LPeg's `test.lua` test suite
+
 0.9.2 (2015-10-28)
 ------------------
 
