@@ -271,9 +271,8 @@ def test_pi():
 
 #tests for capture optimizations
 def test_capture_optimizations():
-    pass
-    #assert match((P(3) | 4 + P.CapP()) + "a", "abca").captures == [4]
-    #assert match(((P("a") | P.CapP()) + P("x"))**0, "axxaxx").captures == [2, 5] Infinite loop
+    assert match((P(3) | 4 + P.CapP()) + "a", "abca").pos == 4
+    assert match(((P("a") | P.CapP()) + P("x"))**0, "axxaxx").captures == [2, 5]
 
 
 #test for table captures
@@ -304,16 +303,17 @@ def test_groups():
     #assert(p:match('x') == 'x')
     p = P.CapG(P.CapG(P.CapG(P.Cap(P(1)))))
     assert(match(p, 'x').captures == ['x'])
-    #p = P.CapG(P.CapG(P.CapG(P.Cap(P(1)))**0) * P.CapG(m.Cc(1) * m.Cc(2)))
-    #t = {p:match'abc'}
-    #checkeq(t, {'a', 'b', 'c', 1, 2})
+    p = P.CapG(P.CapG(P.CapG(P.Cap(P(1)))**0) + P.CapG(P.CapC(1) + P.CapC(2)))
+    assert match(p, 'abc').captures == ['a', 'b', 'c', 1, 2]
 
 
 # test for non-pattern as arguments to pattern functions
 def test_non_pattern_as_arguments():
-    pass
-    #p = P.Garmmar( ('a' * m.V(1))^-1 } * m.P'b' * { 'a' * m.V(2); m.V(1)^-1 )
-    #assert(match(p, "aaabaac") == 7)
+    p = (  P.Grammar(('a' + P.Var(0))**-1)
+         + P('b')
+         + P.Grammar('a' + P.Var(1), P.Var(0)**-1)
+    )
+    assert match(p, "aaabaac").pos == 6
 
 
 # a large table capture
@@ -329,20 +329,26 @@ def test_for_errors():
         P.Grammar(P.Var(0) + 'a')
     assert excinfo.value.message == 'Rule 0 is left recursive'
 
-    #with pytest.raises(RuntimeError) as excinfo:
-    #    match(P.Cap('a')**0, "a" * 50000)
-    #assert excinfo.value.message == "stack overflow"
+    with pytest.raises(RuntimeError) as excinfo:
+        match(P.Cap(P('a'))**0, "a" * 50000)
+    assert excinfo.value.message == "Capture stack overflow"
 
-    #with pytest.raises(RuntimeError) as excinfo: match(P.Var(0), '')
-    #assert excinfo.value.message == "Reference to rule outside a grammar"
+    with pytest.raises(RuntimeError) as excinfo:
+        match(P.Var(0), '')
+    assert excinfo.value.message == "Reference to rule outside a grammar"
 
-    #with pytest.raises(RuntimeError) as excinfo: match(P.Var('hiii'), '')
-    #assert excinfo.value.message == "rule 'hiii' outside a grammar"
+    with pytest.raises(RuntimeError) as excinfo:
+        match(P.Var('hiii'), '')
+    assert excinfo.value.message == "Reference to rule outside a grammar"
 
-    #with pytest.raises(RuntimeError) as excinfo: P.Grammar(P.Var('hiii'))
+    with pytest.raises(RuntimeError) as excinfo:
+        match(P.Grammar(P.Var('hiii')), '')
+    # TODO The exception matches, but wrong error message: invalid op code
     #assert excinfo.value.message == "rule 'hiii' is not defined"
 
-    #with pytest.raises(RuntimeError) as excinfo: P.Grammar(P.Var({}), '')
+    with pytest.raises(RuntimeError) as excinfo:
+        match(P.Grammar(P.Var({})), '')
+    # TODO The exception matches, but wrong error message: invalid op code
     #assert excinfo.value.message == "rule <a table> is not defined"
 
 
