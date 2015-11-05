@@ -198,8 +198,8 @@ def test_capture_position():
 # test for small capture boundary
 @pytest.mark.parametrize('i', xrange(250, 260))
 def test_small_capture_boundary(i):
-    assert match(P.Cap(P(i)), 'a'*i).captures == ['a'*i]
-    assert match(P.Cap(P.Cap(P(i))), 'a'*i).captures == ['a'*i, 'a'*i]
+    assert match(P.Cap(i), 'a'*i).captures == ['a'*i]
+    assert match(P.Cap(P.Cap(i)), 'a'*i).captures == ['a'*i, 'a'*i]
 
 
 # tests for any*n
@@ -210,8 +210,8 @@ def test_any(n):
     assert not match(P(n), x_1)
     assert match(P(n), x).pos == n
     assert n < 4 or match(P(n) | "xxx", x_1).pos == 3
-    assert match(P.Cap(P(n)), x).captures == [x]
-    #assert match(P.Cap(P.Cap(P(n))), x).captures == [x]
+    assert match(P.Cap(n), x).captures == [x]
+    #assert match(P.Cap(P.Cap(n)), x).captures == [x]
     assert match(P(-n), x_1).pos == 0
     assert not match(P(-n), x)
     assert n < 13 or match(P.CapC(20) + ((n - 13) + P(10)) + 3, x).captures == [20]
@@ -221,7 +221,7 @@ def test_any(n):
 def test_foo():
     assert match(P(0), "x").pos == 0
     assert match(P(0), "").pos == 0
-    assert match(P.Cap(P(0)), "x").captures == [""]
+    assert match(P.Cap(0), "x").captures == [""]
     assert match(P.CapC(0) + P(10) | P.CapC(1) + "xuxu", "xuxu").captures == [1]
     assert match(P.CapC(0) + P(10) | P.CapC(1) + "xuxu", "xuxuxuxuxu").captures == [0]
     assert match(P.Cap(P(2)**1), "abcde").captures == ["abcd"]
@@ -291,19 +291,19 @@ def test_table_captures():
     #t = match(P.CapT(P.CapT((P.Cap() + letter + m.Cap())**1)), "alo")
     #assert(table.concat(t[1], ";") == "1;2;2;3;3;4")
 
-    #t = match(P.CapT(P.Cap(P.Cap(P(1)) + 1 + P.Cap(P(1)))), "alo")
+    #t = match(P.CapT(P.Cap(P.Cap(1) + 1 + P.Cap(1))), "alo")
     pass #checkeq(t, {"alo", "a", "o"})
 
 
 # tests for groups
 def test_groups():
-    p = P.CapG(P(1))   # no capture
+    p = P.CapG(1)   # no capture
     assert(match(p, 'x').captures == ['x'])
     #p = P.CapG(P(True)/function () end * 1)   -- no value
     #assert(p:match('x') == 'x')
-    p = P.CapG(P.CapG(P.CapG(P.Cap(P(1)))))
+    p = P.CapG(P.CapG(P.CapG(P.Cap(1))))
     assert(match(p, 'x').captures == ['x'])
-    p = P.CapG(P.CapG(P.CapG(P.Cap(P(1)))**0) + P.CapG(P.CapC(1) + P.CapC(2)))
+    p = P.CapG(P.CapG(P.CapG(P.Cap(1))**0) + P.CapG(P.CapC(1) + P.CapC(2)))
     assert match(p, 'abc').captures == ['a', 'b', 'c', 1, 2]
 
 
@@ -318,7 +318,7 @@ def test_non_pattern_as_arguments():
 
 # a large table capture
 def test_large_table_capture():
-    #t = match(P.CapT(P.Cap(P('a'))**0), 'a'*10000)
+    #t = match(P.CapT(P.Cap('a')**0), 'a'*10000)
     #assert t.captures == 'a'*10000
     pass    # raises RuntimeError
 
@@ -330,7 +330,7 @@ def test_for_errors():
     assert excinfo.value.message == 'Rule 0 is left recursive'
 
     with pytest.raises(RuntimeError) as excinfo:
-        match(P.Cap(P('a'))**0, "a" * 50000)
+        match(P.Cap('a')**0, "a" * 50000)
     assert excinfo.value.message == "Capture stack overflow"
 
     with pytest.raises(RuntimeError) as excinfo:
@@ -581,9 +581,9 @@ def test_function_replacements():
         if a != "x":
             return [a] + list(args)
 
-    assert match(P.Cap(P(1))**0, "abc").captures == ["a", "b", "c"]
-    assert match(P.Cap(P(1))**0 / f, "abc").captures == [["a", "b", "c"]]
-    assert match(P.Cap(P(1))**0 / f / f, "abc").captures == [[["a", "b", "c"]]]
+    assert match(P.Cap(1)**0, "abc").captures == ["a", "b", "c"]
+    assert match(P.Cap(1)**0 / f, "abc").captures == [["a", "b", "c"]]
+    assert match(P.Cap(1)**0 / f / f, "abc").captures == [[["a", "b", "c"]]]
 
     assert match(P(1)**0, "abc").captures == [] #   -- no capture
     assert match(P(1)**0 / f, "abc").captures == [['abc']] #   -- no capture
@@ -591,11 +591,11 @@ def test_function_replacements():
 
     assert match( P(1)**0   + P.CapP(), "abc").captures == [3]
     assert match((P(1)**0/f + P.CapP())/f, "abc").captures == [[['abc'], 3]]
-    assert match((P.Cap(P(1))**0/f + P.CapP())/f, "abc").captures == [[["a", "b", "c"], 3]]
+    assert match((P.Cap(1)**0/f + P.CapP())/f, "abc").captures == [[["a", "b", "c"], 3]]
 
-    assert match((P.Cap(P(1))**0/f + P.CapP())/f, "xbc").captures == [[None, 3]]
+    assert match((P.Cap(1)**0/f + P.CapP())/f, "xbc").captures == [[None, 3]]
 
-    assert match(P.Cap(P.Cap(P(1))**0)/f, "abc").captures == [["abc", "a", "b", "c"]]
+    assert match(P.Cap(P.Cap(1)**0)/f, "abc").captures == [["abc", "a", "b", "c"]]
 
     def g(*args):
         return [1]+list(args)
@@ -619,24 +619,24 @@ def test_function_replacements():
 
 # tests for Query Replacements
 def _test_query_replacements():
-    assert match(P.Cap(P.Cap(P(1))**0) / {'abc': 10}, "abc").captures == [10]
-    assert match(P.Cap(P(1))**0 / {'a': 10}, "abc").captures == [10]
+    assert match(P.Cap(P.Cap(1)**0) / {'abc': 10}, "abc").captures == [10]
+    assert match(P.Cap(1)**0 / {'a': 10}, "abc").captures == [10]
     assert match(P.Set("ba")**0 / {"ab": 40}, "abc").captures == [40]
     #assert match(P.CapT((P.Set("ba")/{'a': 40})**0), "abc").captures == [[40]]
 
-    assert match(P.CapS((P.Cap(P(1))/{'a':'.', 'd':'..'})**0), "abcdde").captures == [".bc....e"]
-    assert match(P.CapS((P.Cap(P(1))/{'f':"."})**0), "abcdde").captures == ["abcdde"]
-    assert match(P.CapS((P.Cap(P(1))/{'d':"."})**0), "abcdde").captures == ["abc..e"]
-    assert match(P.CapS((P.Cap(P(1))/{'e':"."})**0), "abcdde").captures == ["abcdd."]
-    assert match(P.CapS((P.Cap(P(1))/{'e':".", 'f':"+"})**0), "eefef").captures == ["..+.+"]
-    assert match(P.CapS((P.Cap(P(1)))**0), "abcdde").captures == ["abcdde"]
-    assert match(P.CapS(P.Cap(P.Cap(P(1))**0)), "abcdde").captures == ["abcdde"]
-    assert match(1 + P.CapS(P(1)**0), "abcdde").captures == ["bcdde"]
-    assert match(P.CapS((P.Cap(P('0'))/'x' | 1)**0), "abcdde").captures == ["abcdde"]
-    assert match(P.CapS((P.Cap(P('0'))/'x' | 1)**0), "0ab0b0").captures == ["xabxbx"]
-    assert match(P.CapS((P.Cap(P('0'))/'x' | P(1)/{'b':3})**0), "b0a0b").captures == ["3xax3"]
+    assert match(P.CapS((P.Cap(1)/{'a':'.', 'd':'..'})**0), "abcdde").captures == [".bc....e"]
+    assert match(P.CapS((P.Cap(1)/{'f':"."})**0), "abcdde").captures == ["abcdde"]
+    assert match(P.CapS((P.Cap(1)/{'d':"."})**0), "abcdde").captures == ["abc..e"]
+    assert match(P.CapS((P.Cap(1)/{'e':"."})**0), "abcdde").captures == ["abcdd."]
+    assert match(P.CapS((P.Cap(1)/{'e':".", 'f':"+"})**0), "eefef").captures == ["..+.+"]
+    assert match(P.CapS((P.Cap(1))**0), "abcdde").captures == ["abcdde"]
+    assert match(P.CapS(P.Cap(P.Cap(1)**0)), "abcdde").captures == ["abcdde"]
+    assert match(1 + P.CapS(1**0), "abcdde").captures == ["bcdde"]
+    assert match(P.CapS((P.Cap('0')/'x' | 1)**0), "abcdde").captures == ["abcdde"]
+    assert match(P.CapS((P.Cap('0')/'x' | 1)**0), "0ab0b0").captures == ["xabxbx"]
+    assert match(P.CapS((P.Cap('0')/'x' | P(1)/{'b':3})**0), "b0a0b").captures == ["3xax3"]
     assert match(P(1)/'%0%0'/{'aa': -3} + 'x', 'ax').captures == [-3]
-    assert match(P.Cap(P(1))/'%0%1'/{'aa': 'z'}/{'z': -3} + 'x', 'ax').captures == [-3]
+    assert match(P.Cap(1)/'%0%1'/{'aa': 'z'}/{'z': -3} + 'x', 'ax').captures == [-3]
 
     assert match(P.CapS(m.CapC(0) + (P(1)/"")), "4321").captures == ["0"]
 
@@ -651,8 +651,8 @@ def _test_query_replacements():
     #assert(not pcall(m.match, m.P(1)/"%1", "abc"))   -- out of range
     #assert(not pcall(m.match, m.P(1)/"%9", "abc"))   -- out of range
 
-    p = P.Cap(P(1))
-    p = p * p; p = p * p; p = p * p * P.Cap(P(1)) / "%9 - %1"
+    p = P.Cap(1)
+    p = p * p; p = p * p; p = p * p * P.Cap(1) / "%9 - %1"
     assert match(p, "1234567890").captures == ["9 - 1"]
 
     assert match(P.CapC(print), "").captures == [print]
@@ -661,14 +661,14 @@ def _test_query_replacements():
 # too many captures (just ignore extra ones)
 def test_ignore_extra_captures():
     s = "01234567890123456789"
-    assert match(P.Cap(P(1))**0 / "%2-%9-%0-%9", s).captures == ["1-8-01234567890123456789-8"]
+    assert match(P.Cap(1)**0 / "%2-%9-%0-%9", s).captures == ["1-8-01234567890123456789-8"]
     s = "12345678901234567890" * 20
-    assert match(P.Cap(P(1))**0 / "%9-%1-%0-%3", s).captures == ["9-1-" + s + "-3"]
+    assert match(P.Cap(1)**0 / "%9-%1-%0-%3", s).captures == ["9-1-" + s + "-3"]
 
 
 # string captures with non-string subcaptures
 def test_string_captures_with_non_string_subcaptures():
-    p = (P.CapC('alo') + P.Cap(P(1))) / "%1 - %2 - %1"
+    p = (P.CapC('alo') + P.Cap(1)) / "%1 - %2 - %1"
     assert match(p, 'x').captures == ['alo - x - alo']
 
 
@@ -689,7 +689,7 @@ def test_accumulator_capture():
     def f(x, *args):
         return x + 1
 
-    assert match(P.CapF(P.CapC(0) + P.Cap(P(1))**0, f), "alo alo").captures == [7]
+    assert match(P.CapF(P.CapC(0) + P.Cap(1)**0, f), "alo alo").captures == [7]
 
     def head(seq):
         return seq[0]
@@ -770,18 +770,17 @@ def test_initial_rule():
 # tests for back references
 def test_back_references():
     with pytest.raises(RuntimeError): match(P.CapB('x'), '')
-    with pytest.raises(RuntimeError): match(P.CapG(P(1), 'a') + P.CapB('b'), 'a')
+    with pytest.raises(RuntimeError): match(P.CapG(1, 'a') + P.CapB('b'), 'a')
 
-    p = P.CapG(P.Cap(P(1)) + P.Cap(P(1)), "k") + P.CapT(P.CapB("k"))
-    #t = p:match("ab")
-    #checkeq(t, {"a", "b"})
+    p = P.CapG(P.Cap(1) + P.Cap(1), "k") + P.CapT(P.CapB("k"))
+    #assert match(p, "ab").captures == ["a", "b"] # Infinite loop
 
     t = []
     def foo(p):
         t.append(p)
         return p + "x"
 
-    p = (P.CapG(P.Cap(P(2)) / foo, "x") + P.CapB("x") +
+    p = (P.CapG(P.Cap(2)    / foo, "x") + P.CapB("x") +
          P.CapG(P.CapB('x') / foo, "x") + P.CapB("x") +
          P.CapG(P.CapB('x') / foo, "x") + P.CapB("x") +
          P.CapG(P.CapB('x') / foo, "x") + P.CapB("x")
@@ -811,8 +810,8 @@ def test_match_time_captures():
     #assert match(p, "(a g () ((b) c) (d (e)))").captures == ['a', 'g', [], [['b'], 'c'], ['d', ['e']]]
 
     s = 'a' * 500
-    #assert match(P.CapRT(P(1), id_)**0, s).captures == 500
-    #with  match(P.CapRT(P(1), id_)**0, 'a' * 50000))
+    #assert match(P.CapRT(1, id_)**0, s).captures == 500
+    #with  match(P.CapRT(1, id_)**0, 'a' * 50000))
 
     def id_(s, i, x):
         if x == 'a':
@@ -833,8 +832,8 @@ def test_match_time_captures():
     def ref(s, i, x):
         return i == int(x) and i, 'xuxu'
 
-    #assert match(P.CapRT(P(1), ref), '2')
-    #assert not match(P.CapRT(P(1), ref), '1')
+    #assert match(P.CapRT(1, ref), '2')
+    #assert not match(P.CapRT(1, ref), '1')
     #assert match(P.CapRT(P(1)**0, ref), '03')
 
     def ref(s, i, a, b):

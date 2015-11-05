@@ -1563,6 +1563,17 @@ static PyObject *Pattern_or (PyObject *self, PyObject *other) {
     return result;
 }
 
+int ensure_pattern(PyObject **pat) {
+    if (!PyObject_IsInstance(*pat, pattern_cls)) {
+        PyObject *result = PyObject_CallFunctionObjArgs(pattern_cls, *pat, NULL);
+        if (result == NULL)
+            return -1;
+        *pat = result;
+        Py_INCREF(*pat);
+    }
+    return 0;
+}
+
 /* **********************************************************************
  * Captures - creation of capture instructions
  * **********************************************************************
@@ -1571,6 +1582,11 @@ static PyObject *capture_aux(PyObject*cls, PyObject *pat, int kind, PyObject *la
     int n;
     int lc;
     PyObject *result;
+
+    if (ensure_pattern(&pat) == -1) {
+        Py_INCREF(Py_NotImplemented);
+        return Py_NotImplemented;
+    }
 
     lc = skipchecks(patprog(pat), 0, &n);
 

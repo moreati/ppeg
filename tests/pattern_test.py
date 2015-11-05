@@ -58,6 +58,24 @@ class TestEquivalents(TestCase):
         self.assertEqual(P(range="ac"), P(range=u"ac"))
 
 
+class TestCaptureEquivalents(TestCase):
+    def test_capture_fail(self):
+        self.assertEqual(P.Cap(None),   P.Cap(P(None))  )
+
+    def test_capture_any(self):
+        self.assertEqual(P.Cap(1),      P.Cap(P(1))     )
+        self.assertEqual(P.Cap(1000),   P.Cap(P(1000))  )
+        self.assertEqual(P.Cap(-1),     P.Cap(P(-1))    )
+        self.assertEqual(P.Cap(-1000),  P.Cap(P(-1000)) )
+        self.assertEqual(P.Cap(0),      P.Cap(P(0))     )
+
+    def test_capture_match(self):
+        self.assertEqual(P.Cap("a"),      P.Cap(P("a"))      )
+        self.assertEqual(P.Cap("abcdef"), P.Cap(P("abcdef")) )
+        self.assertEqual(P.Cap(""),       P.Cap(P(""))       )
+        self.assertEqual(P.Cap("a\0b"),   P.Cap(P("a\0b"))   )
+
+
 class TestInitChecks(TestCase):
     def testtoomany(self):
         self.assertRaises(TypeError, P, 1, set="ab")
