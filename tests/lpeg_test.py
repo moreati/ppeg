@@ -164,11 +164,15 @@ def test_initial_matches():
     assert caplookfor(letter**1)("   4achou123...").captures == ["achou"]
     a = (caplookfor(letter**1)**0)(" two words, one more  ").captures
     assert a == ["two", "words", "one", "more"]
+
     assert basiclookfor((+b + 1) + P.CapP())("  (  (a)").pos == 6
+
     m = (P.Cap(digit**1 + P.CapC("d")) | P.Cap(letter**1 + P.CapC("l")))("123")
     assert m.captures == ["123", "d"]
+
     m = (P.Cap(digit**1) + "d" + (-1) | P.Cap(letter**1 + P.CapC("l")))("123d")
     assert m.captures == ["123"]
+
     m = (P.Cap(digit**1 + P.CapC("d")) | P.Cap(letter**1 + P.CapC("l")))("abcd")
     assert m.captures == ["abcd", "l"]
 
@@ -215,6 +219,7 @@ def test_any(n):
     assert n < 13 or match(P.CapC(20) + ((n - 13) + P(10)) + 3, x).captures == [20]
     n3 = n // 3
     assert match(n3 + P.CapP() + n3 + n3, x).captures == [n3]
+
 
 def test_foo():
     assert match(P(0), "x").pos == 0
