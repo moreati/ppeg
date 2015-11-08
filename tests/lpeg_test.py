@@ -132,12 +132,10 @@ def test_eos():
     assert not (digit ** 0 + letter + eos)("1257a1")
 
 
-b = P.Grammar(P.Match("(") +
-              (((P.Any(1) - P.Set("()")) | +P.Match("(") + P.Var(0)) ** 0) +
-              P.Match(")"))
-
-
 def test_matching_paren():
+    b = P.Grammar(
+        "(" + (((1 - P.Set("()")) | +P("(") + P.Var(0)) ** 0) + ")"
+    )
     assert b("(a1())()")
     assert not (b + eos)("(a1())()")
     assert (b + eos)("((a1())()(é))")
