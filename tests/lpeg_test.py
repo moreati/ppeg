@@ -178,20 +178,20 @@ def test_initial_matches():
 
 
 def test_capture_position():
-    m = match(P.CapC([10, 20, 30]) + 'a' + P.CapP(), 'aaa')
-    assert m.captures == [[10, 20, 30], 1]
+    m = match(P.CapC(10, 20, 30) + 'a' + P.CapP(), 'aaa')
+    assert m.captures == [10, 20, 30, 1]
 
-    m = match(P.CapP() + P.CapC([10, 20, 30]) + 'a' + P.CapP(), 'aaa')
-    assert m.captures == [0, [10, 20, 30], 1]
+    m = match(P.CapP() + P.CapC(10, 20, 30) + 'a' + P.CapP(), 'aaa')
+    assert m.captures == [0, 10, 20, 30, 1]
 
-    #m = match(P.CapT(P.CapP() + P.CapC([10, 20, 30]) + 'a' + P.CapP()), 'aaa')
-    #assert m.captures == [0, [10, 20, 30], 1]
+    #m = match(P.CapT(P.CapP() + P.CapC(10, 20, 30) + 'a' + P.CapP()), 'aaa')
+    #assert m.captures == [0, 10, 20, 30, 1]
 
-    #m = match(P.CapT(P.CapP() + P.CapC([7, 8]) + P.CapC([10, 20, 30]) + 'a' + P.CapP()), 'aaa')
-    #assert m.captures == [1, [7, 8], [10, 20, 30], 2]
+    #m = match(P.CapT(P.CapP() + P.CapC(7, 8) + P.CapC(10, 20, 30) + 'a' + P.CapP()), 'aaa')
+    #assert m.captures == [0, 7, 8, 10, 20, 30, 1]
 
-    #m = match(P.CapC() + P.CapC() + P.CapC(1) + P.CapC([2, 3, 4]) + P.CapC() + 'a', 'aaa')
-    #assert m.captures == [1, [2, 3, 4]]
+    m = match(P.CapC() + P.CapC() + P.CapC(1) + P.CapC(2, 3, 4) + P.CapC() + 'a', 'aaa')
+    assert m.captures == [1, 2, 3, 4]
 
     assert match(P.CapP() + letter**1 + P.CapP(), "abcd").captures == [0, 4]
 

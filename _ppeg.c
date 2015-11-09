@@ -1731,17 +1731,27 @@ static PyObject *Pattern_CaptureArg(PyObject *cls, PyObject *id) {
     return result;
 }
 
-static PyObject *Pattern_CaptureConst(PyObject *cls, PyObject *val) {
-    PyObject *result;
-    result = new_patt(cls, 1);
-    if (result) {
-        Py_ssize_t j = val2env(result, val);
+static PyObject *Pattern_CaptureConst(PyObject *cls, PyObject *args) {
+    Py_ssize_t i, j;
+    Py_ssize_t n = PyTuple_GET_SIZE(args);
+    Instruction *p;
+    PyObject *val;
+    PyObject *result = new_patt(cls, n > 1 ? n + 2 : n);
+    if (result == NULL) {
+        return NULL;
+    }
+    p = patprog(result);
+    if (n > 1) setinstcap(p++, IOpenCapture, 0, Cgroup, 0);
+    for (i = 0; i < n; i++) {
+        val = PyTuple_GET_ITEM(args, i);
+        j = val2env(result, val);
         if (j == ENV_ERROR) {
             Py_DECREF(result);
             return NULL;
         }
-        setinstcap(patprog(result), IEmptyCaptureIdx, j, Cconst, 0);
+        setinstcap(p++, IEmptyCaptureIdx, j, Cconst, 0);
     }
+    if (n > 1) setinstcap(p++, ICloseCapture, 0, Cclose, 0);
     return result;
 }
 
@@ -2710,7 +2720,7 @@ static PyMethodDef Pattern_methods[] = {
     {"CapA", (PyCFunction)Pattern_CaptureArg, METH_O | METH_CLASS,
      "An argument capture"
     },
-    {"CapC", (PyCFunction)Pattern_CaptureConst, METH_O | METH_CLASS,
+    {"CapC", (PyCFunction)Pattern_CaptureConst, METH_VARARGS | METH_CLASS,
      "A constant capture"
     },
     {"CapB", (PyCFunction)Pattern_CaptureBack, METH_O | METH_CLASS,
