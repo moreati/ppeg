@@ -193,8 +193,8 @@ def test_capture_position():
     #m = match(P.CapC() + P.CapC() + P.CapC(1) + P.CapC([2, 3, 4]) + P.CapC() + 'a', 'aaa')
     #assert m.captures == [1, [2, 3, 4]]
 
-    #m = match(m.CapP() + letter**1 + P.CapP(), "abcd")
-    #assert m.captures == [0, 4]
+    assert match(P.CapP() + letter**1 + P.CapP(), "abcd").captures == [0, 4]
+
 
 
 # test for small capture boundary
