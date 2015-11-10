@@ -184,11 +184,11 @@ def test_capture_position():
     m = match(P.CapP() + P.CapC(10, 20, 30) + 'a' + P.CapP(), 'aaa')
     assert m.captures == [0, 10, 20, 30, 1]
 
-    #m = match(P.CapT(P.CapP() + P.CapC(10, 20, 30) + 'a' + P.CapP()), 'aaa')
-    #assert m.captures == [0, 10, 20, 30, 1]
+    m = match(P.CapT(P.CapP() + P.CapC(10, 20, 30) + 'a' + P.CapP()), 'aaa')
+    assert m.captures == [[0, 10, 20, 30, 1]]
 
-    #m = match(P.CapT(P.CapP() + P.CapC(7, 8) + P.CapC(10, 20, 30) + 'a' + P.CapP()), 'aaa')
-    #assert m.captures == [0, 7, 8, 10, 20, 30, 1]
+    m = match(P.CapT(P.CapP() + P.CapC(7, 8) + P.CapC(10, 20, 30) + 'a' + P.CapP()), 'aaa')
+    assert m.captures == [[0, 7, 8, 10, 20, 30, 1]]
 
     m = match(P.CapC() + P.CapC() + P.CapC(1) + P.CapC(2, 3, 4) + P.CapC() + 'a', 'aaa')
     assert m.captures == [1, 2, 3, 4]
@@ -280,22 +280,23 @@ def test_capture_optimizations():
 
 #test for table captures
 def test_table_captures():
-    #assert match(P.CapT(letter**1), "alo") == {}
+    assert match(P.CapT(letter**1), "alo").captures == [[]]
 
-    #t, n = match(P.CapT(P.Cap(letter)**1) + P.CapC("t"), "alo")
-    #assert(n == "t" and table.concat(t) == "alo")
+    m = match(P.CapT(P.Cap(letter)**1) + P.CapC("t"), "alo")
+    assert m.captures == [['a', 'l', 'o'], 't']
 
+    m = match(P.CapT(P.Cap(P.Cap(letter)**1)), "alo")
+    assert m.captures == [['alo', 'a', 'l', 'o']]
+
+    # Same test case repeated
     #t = match(P.CapT(P.Cap(P.Cap(letter)**1)), "alo")
     #assert(table.concat(t, ";") == "alo;a;l;o")
 
-    #t = match(P.CapT(P.Cap(P.Cap(letter)**1)), "alo")
-    #assert(table.concat(t, ";") == "alo;a;l;o")
+    m = match(P.CapT(P.CapT((P.CapP() + letter + P.CapP())**1)), "alo")
+    assert m.captures == [[[0, 1, 1, 2, 2, 3]]]
 
-    #t = match(P.CapT(P.CapT((P.Cap() + letter + m.Cap())**1)), "alo")
-    #assert(table.concat(t[1], ";") == "1;2;2;3;3;4")
-
-    #t = match(P.CapT(P.Cap(P.Cap(1) + 1 + P.Cap(1))), "alo")
-    pass #checkeq(t, {"alo", "a", "o"})
+    m = match(P.CapT(P.Cap(P.Cap(1) + 1 + P.Cap(1))), "alo")
+    assert m.captures == [["alo", "a", "o"]]
 
 
 # tests for groups
@@ -625,7 +626,7 @@ def _test_query_replacements():
     assert match(P.Cap(P.Cap(1)**0) / {'abc': 10}, "abc").captures == [10]
     assert match(P.Cap(1)**0 / {'a': 10}, "abc").captures == [10]
     assert match(P.Set("ba")**0 / {"ab": 40}, "abc").captures == [40]
-    #assert match(P.CapT((P.Set("ba")/{'a': 40})**0), "abc").captures == [[40]]
+    assert match(P.CapT((P.Set("ba")/{'a': 40})**0), "abc").captures == [[40]]
 
     assert match(P.CapS((P.Cap(1)/{'a':'.', 'd':'..'})**0), "abcdde").captures == [".bc....e"]
     assert match(P.CapS((P.Cap(1)/{'f':"."})**0), "abcdde").captures == ["abcdde"]

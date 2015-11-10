@@ -1984,6 +1984,63 @@ static int backrefcap (CapState *cs) {
     return n;
 }
 
+static int tablecap (CapState *cs) {
+    int n = 0;
+    PyObject *result = PyList_New(0);
+    if (result == NULL) {
+        return -1;
+    }
+    if (PyList_Append(cs->values, result) == -1) {
+        Py_DECREF(result);
+        return -1;
+    }
+    if (isfullcap(cs->cap++)) {
+        Py_DECREF(result);
+        return 1; /* table is empty */
+    }
+    while (!isclosecap(cs->cap)) {
+#if 0
+        if (captype(cs->cap) == Cgroup && cs->cap->idx != 0 ) { /* named group? */
+            int k;
+            PyObject *id = env2val(cs->patt, cs->cap->idx);
+            if (id == NULL && PyErr_Occurred())
+                return -1;
+            k = pushallvalues(cs, 0);
+            if (k == 0) {
+                continue;
+            }
+            else if (k > 1) {
+        }
+        else {
+#endif
+            int k = pushcapture(cs);
+            Py_ssize_t values_len = PySequence_Size(cs->values);
+            PyObject *slice = PySequence_GetSlice(cs->values, -k, values_len);
+            if (slice == NULL) {
+                Py_DECREF(result);
+                return -1;
+            }
+            if (PySequence_SetSlice(result, n+1, n+1, slice) == -1) {
+                Py_DECREF(slice);
+                Py_DECREF(result);
+                return -1;
+            }
+            if (PySequence_DelSlice(cs->values, -k, values_len) == -1) {
+                Py_DECREF(slice);
+                Py_DECREF(result);
+                return -1;
+            }
+            Py_DECREF(slice);
+            n += k;
+#if 0
+        }
+#endif
+    }
+    cs->cap++;
+    Py_DECREF(result);
+    return 1;
+}
+
 static int querycap (CapState *cs) {
     int n;
     /* Copy this here, as pushallvalues changes cs->cap */
@@ -2320,7 +2377,7 @@ static int pushcapture (CapState *cs) {
         /* Table captures have different semantics, because tables in
          * Lua don't quite correspond to lists or dicts in Python.
          */
-        /* case Ctable: return tablecap(cs); */
+        case Ctable: return tablecap(cs);
         case Cfunction: return functioncap(cs);
         case Cquery: return querycap(cs);
         case Cfold: return foldcap(cs);
