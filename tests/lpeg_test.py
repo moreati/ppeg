@@ -195,6 +195,8 @@ def test_capture_position():
 
     assert match(P.CapP() + letter**1 + P.CapP(), "abcd").captures == [0, 4]
 
+    m = match(P.Grammar(P.Cap(P.Cap(1) + P.Var(0) | -1)), "abc")
+    assert m.captures == ["abc", "a", "bc", "b", "c", "c", ""]
 
 
 # test for small capture boundary
