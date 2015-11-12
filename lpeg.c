@@ -378,10 +378,10 @@ static void adddyncaptures (const char *s, Capture *base, int n, int fd) {
 }
 
 
-#if 0
 #define condfailed(p)	{ int f = p->i.offset; if (f) p+=f; else goto fail; }
 
 
+#if 0
 static const char *match ( /* lua_State *L, */
                           const char *o, const char *s, const char *e,
                           Instruction *op, Capture *capture, int ptop) {

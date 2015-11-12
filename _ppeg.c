@@ -2437,8 +2437,6 @@ static PyObject *getcaptures (PyObject *patt, Capture **capturep, const char *s,
  * Finally, the matcher
  * **********************************************************************
  */
-#define condfailed(p)	{ int f = p->i.offset; if (f) p+=f; else goto fail; }
-
 static const char *match (const char *o, const char *s, const char *e,
                           PyObject *patt, Capture *capture, PyObject *args) {
     Stack stackbase[MAXBACK];
