@@ -1905,7 +1905,13 @@ static int substcap(PyObject *lst, CapState *cs) {
     if (isfullcap(cs->cap)) {
         /* Keep original text */
         str = PyString_FromStringAndSize(curr, cs->cap->siz - 1);
-        PyList_Append(lst, str);
+        if (str == NULL) {
+            return -1;
+        }
+        if (PyList_Append(lst, str)) {
+            Py_DECREF(str);
+            return -1;
+        }
         Py_DECREF(str);
     }
     else {
@@ -1914,7 +1920,13 @@ static int substcap(PyObject *lst, CapState *cs) {
             const char *next = cs->cap->s;
             int rv;
             str = PyString_FromStringAndSize(curr, next - curr);
-            PyList_Append(lst, str);
+            if (str == NULL) {
+                return -1;
+            }
+            if (PyList_Append(lst, str)) {
+                Py_DECREF(str);
+                return -1;
+            }
             Py_DECREF(str);
             rv = addonestring(lst, cs, "replacement");
             if (rv == -1)
@@ -1925,7 +1937,13 @@ static int substcap(PyObject *lst, CapState *cs) {
                 curr = closeaddr(cs->cap - 1); /* Continue after match */
         }
         str = PyString_FromStringAndSize(curr, cs->cap->s - curr); /* Add last piece of text */
-        PyList_Append(lst, str);
+        if (str == NULL) {
+            return -1;
+        }
+        if (PyList_Append(lst, str)) {
+            Py_DECREF(str);
+            return -1;
+        }
         Py_DECREF(str);
     }
     cs->cap++; /* Go to next capture */
@@ -2240,6 +2258,10 @@ static int addonestring (PyObject *lst, CapState *cs, const char *what) {
             /* Only the first result */
             cs->values = temp;
             n = pushcapture(cs);
+            if (n == -1) {
+                Py_DECREF(temp);
+                return -1;
+            }
             temp = cs->values;
             cs->values = save;
             if (n > 0) {
@@ -2360,11 +2382,32 @@ static int pushcapture (CapState *cs) {
         }
         case Csubst: {
             PyObject *lst = PyList_New(0);
+            if (lst == NULL) {
+                return -1;
+            }
             PyObject *str = PyString_FromString("");
+            if (str == NULL) {
+                Py_DECREF(lst);
+                return -1;
+            }
             PyObject *result;
-            substcap(lst, cs);
+            if (substcap(lst, cs) == -1) {
+                Py_DECREF(str);
+                Py_DECREF(lst);
+                return -1;
+            }
             result = PyObject_CallMethod(str, "join", "(O)", lst);
-            PyList_Append(cs->values, result);
+            if (result == NULL) {
+                Py_DECREF(str);
+                Py_DECREF(lst);
+                return -1;
+            }
+            if (PyList_Append(cs->values, result)) {
+                Py_DECREF(result);
+                Py_DECREF(str);
+                Py_DECREF(lst);
+                return -1;
+            }
             Py_DECREF(result);
             Py_DECREF(str);
             Py_DECREF(lst);
