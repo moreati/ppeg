@@ -2235,7 +2235,6 @@ static int addonestring (PyObject *lst, CapState *cs, const char *what) {
             int n;
             PyObject *save = cs->values;
             PyObject *temp = PyList_New(0);
-            PyObject *val;
             if (temp == NULL)
                 return -1;
             /* Only the first result */
@@ -2243,20 +2242,26 @@ static int addonestring (PyObject *lst, CapState *cs, const char *what) {
             n = pushcapture(cs);
             temp = cs->values;
             cs->values = save;
-            val = PySequence_GetItem(temp, 0);
-            Py_DECREF(temp);
-            if (val == NULL)
-                return -1;
-            if (!PyString_Check(val)) {
-                /* Convert to string */
-                PyObject *s = PyObject_Str(val);
-                Py_DECREF(val);
-                if (s == NULL)
+            if (n > 0) {
+                PyObject *val = PySequence_GetItem(temp, 0);
+                Py_DECREF(temp);
+                if (val == NULL)
                     return -1;
-                val = s;
+                if (!PyString_Check(val)) {
+                    /* Convert to string */
+                    PyObject *s = PyObject_Str(val);
+                    Py_DECREF(val);
+                    if (s == NULL)
+                        return -1;
+                    val = s;
+                }
+                if (PyList_Append(lst, val) == -1) {
+                    Py_DECREF(val);
+                    return -1;
+                }
+                Py_DECREF(val);
             }
-            PyList_Append(lst, val);
-            return 1;
+            return n;
 #else
             int n = pushcapture(cs);
             Py_ssize_t len = PyList_Size(cs->values);

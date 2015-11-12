@@ -270,8 +270,12 @@ def test_alternation_optimization():
 
 def test_pi():
     pi = "3.14159 26535 89793 23846 26433 83279 50288 41971 69399 37510"
-    #assert match(P.CapS( (P("1") / "a" | P("5") / "b" | P("9") / "c" | 1)**0 ), pi)
-    #assert match(P.CapS( (P(1) / {"1": "a", "5": "b", "9": "c"})**0 ), pi)
+
+    p_stringcap = (P("1") / "a" | P("5") / "b" | P("9") / "c" | 1)**0
+    p_querycap  = (P(1) / {"1": "a", "5": "b", "9": "c"})**0
+
+    assert p_stringcap(pi).captures == p_querycap(pi).captures
+    assert P.CapS(p_stringcap)(pi).captures == P.CapS(p_querycap)(pi).captures
 
 
 #tests for capture optimizations
