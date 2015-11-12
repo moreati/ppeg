@@ -2297,17 +2297,6 @@ static int pushcapture (CapState *cs) {
             cs->cap++;
             return 1;
         }
-        case Carg: {
-            int arg = (cs->cap++)->idx;
-            PyObject *val = PySequence_GetItem(cs->args, arg);
-            if (val == NULL)
-                return -1;
-            if (PyList_Append(cs->values, val) == -1) {
-                Py_DECREF(val);
-                return -1;
-            }
-            return 1;
-        }
         case Cconst: {
             int arg = (cs->cap++)->idx;
             PyObject *val = env2val(cs->patt, arg);
@@ -2319,6 +2308,17 @@ static int pushcapture (CapState *cs) {
                 return -1;
             }
             Py_DECREF(val);
+            return 1;
+        }
+        case Carg: {
+            int arg = (cs->cap++)->idx;
+            PyObject *val = PySequence_GetItem(cs->args, arg);
+            if (val == NULL)
+                return -1;
+            if (PyList_Append(cs->values, val) == -1) {
+                Py_DECREF(val);
+                return -1;
+            }
             return 1;
         }
         case Csimple: {
@@ -2386,9 +2386,7 @@ static int pushcapture (CapState *cs) {
         case Cfunction: return functioncap(cs);
         case Cquery: return querycap(cs);
         case Cfold: return foldcap(cs);
-        default: {
-            return 0;
-        }
+        default: assert(0); return 0;
     }
 }
 
