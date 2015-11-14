@@ -1658,6 +1658,10 @@ static PyObject *Pattern_CaptureRuntime(PyObject *cls, PyObject *args) {
 
     if (!PyArg_UnpackTuple(args, "CapRT", 2, 2, &pat, &fn))
         return NULL;
+    if (ensure_pattern(&pat) == -1) {
+        Py_INCREF(Py_NotImplemented);
+        return Py_NotImplemented;
+    }
     result = new_patt(cls, 1 + patsize(pat) + 1);
     if (result) {
         Instruction *p = patprog(result);
@@ -2216,8 +2220,6 @@ static int runtimecap (Capture *close, Capture *ocap,
     cs.patt = patt;
 #if 0 /* What is this for? */
     pushluaval(&cs);
-    lua_pushvalue(L, SUBJIDX);  /* push original subject */
-    lua_pushinteger(L, s - o + 1);  /* current position */
 #endif
     n = pushallvalues(&cs, 0);
     temp = PyObject_CallFunctionObjArgs((PyObject*)&PyTuple_Type, result, NULL);
@@ -2227,7 +2229,7 @@ static int runtimecap (Capture *close, Capture *ocap,
         return -1;
     }
     result = temp;
-    temp = PyObject_CallFunction(fn, "ssiO", o, s, s-o, result);
+    temp = PyObject_CallFunction(fn, "siO", o, s-o, result);
     Py_DECREF(result);
     Py_DECREF(fn);
     if (temp == NULL)
@@ -2361,10 +2363,14 @@ static int pushcapture (CapState *cs) {
         case Cruntime: {
             int n = 0;
             while (!isclosecap(cs->cap++)) {
-                fprintf(stderr, "TODO: work out what to do here\n");
+                PyObject *val = env2val(cs->patt, (cs->cap - 1)->idx);
+                if (val == NULL) return -1;
+                if (PyList_Append(cs->values, val) == -1) {
+                    Py_DECREF(val);
+                    return -1;
+                }
                 //luaL_checkstack(cs->L, 4, "too many captures");
-                //lua_pushvalue(cs->L, (cs->cap - 1)->idx);
-                //n++;
+                n++;
             }
             return n;
         }
@@ -2641,16 +2647,35 @@ static const char *match (const char *o, const char *s, const char *e,
                 continue;
             }
             case ICloseRunTime: {
+                int fr = PyList_Size(patenv(patt));
                 PyObject *result;
+                PyObject *extravalues = NULL;
                 long res;
+                Py_ssize_t n;
                 int ncap = runtimecap(capture + captop, capture, o, s, patt, args, &result);
-                if (ncap == -1)
+                if (ncap == -1 || result == NULL)
                     return NULL;
-                if (result == Py_None) {
+                if (PySequence_Check(result)) {
+                    PyObject *rtresult = PySequence_ITEM(result, 0);
+                    extravalues = PySequence_ITEM(result, 1);
+                    Py_DECREF(result);
+                    result = rtresult;
+                    for (n = 0; n < PySequence_Size(extravalues); n++) {
+                        PyObject *val = PySequence_ITEM(extravalues, n);
+                        Py_ssize_t len = val2env(patt, val);
+                        Py_DECREF(val);
+                    }
+                    Py_DECREF(extravalues);
+                if (result == Py_None || result == Py_False) {
                     Py_DECREF(result);
                     goto fail;
                 }
-                res = PyInt_AsLong(result);
+                else if (result == Py_True) {
+                    res = s - o;  /* keep current position */
+                }
+                else if (PyInt_Check(result)) {
+                    res = PyInt_AsLong(result);
+                }
                 Py_DECREF(result);
                 if (res == -1 && PyErr_Occurred())
                     return NULL;
@@ -2660,15 +2685,16 @@ static const char *match (const char *o, const char *s, const char *e,
                 }
                 s = o + res;  /* update current position */
                 captop -= ncap;  /* remove nested captures */
-#if 0
                 if (n > 0) {  /* captures? */
                     if ((captop += n + 1) >= capsize) {
+#if 0
                         capture = doublecap(L, capture, captop, ptop);
                         capsize = 2 * captop;
-                    }
-                    adddyncaptures(s, capture + captop - n - 1, n, fr);
-                }
 #endif
+                    }
+                    // FIXME Why is it fr+1, not fr like in lpeg.c?
+                    adddyncaptures(s, capture + captop - n - 1, n, fr+1);
+                }
                 p++;
                 continue;
             }

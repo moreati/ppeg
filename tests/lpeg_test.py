@@ -803,8 +803,8 @@ def test_back_references():
 
 # tests for match-time captures
 def test_match_time_captures():
-    def id_(s, i, *args):
-        return True, args
+    def id_(subject, pos, captures):
+        return True, captures
 
     #assert match(P.CapRT(P.CapS((P.CapRT(P.Set('abc') / {'a': 'x', 'c': 'y'}, id_) |
     #                             P.Range('09')**1 /  chr |
@@ -819,8 +819,8 @@ def test_match_time_captures():
     )
     #assert match(p, "(a g () ((b) c) (d (e)))").captures == ['a', 'g', [], [['b'], 'c'], ['d', ['e']]]
 
-    s = 'a' * 500
-    #assert match(P.CapRT(1, id_)**0, s).captures == 500
+    s = 'a' * 50
+    assert match(P.CapRT(P(1), id_)**0, s).captures == ['a'] * 50
     #with  match(P.CapRT(1, id_)**0, 'a' * 50000))
 
     def id_(s, i, x):

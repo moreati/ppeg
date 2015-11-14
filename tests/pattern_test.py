@@ -489,8 +489,8 @@ class TestRuntimeCap(TestCase):
     def testbasic(self):
         matchone = P.Cap(P(1))
         # Icky interface :-(
-        def fn(str, rest, pos, caps):
-            if (rest.startswith(caps[0])):
+        def fn(subject, pos, caps):
+            if subject[pos:].startswith(caps[0]):
                 return pos+len(caps[0])
             return None
         matchtwo = P.CapRT(matchone, fn)
