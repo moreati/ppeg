@@ -1789,17 +1789,23 @@ static int span_l (lua_State *L) {
 ** =======================================================
 */
 
+#include <Python.h>
 
-#if 0
 typedef struct CapState {
   Capture *cap;  /* current capture */
   Capture *ocap;  /* (original) capture list */
+#if 0
   lua_State *L;
   int ptop;  /* index of last argument to 'match' */
-  const char *s;  /* original string */
-  int valuecached;  /* value stored in cache slot */
-} CapState;
 #endif
+  PyObject *values; /* List of captured values */
+  PyObject *args; /* args of match call */
+  PyObject *patt; /* pattern */
+  const char *s;  /* original string */
+#if 0
+  int valuecached;  /* value stored in cache slot */
+#endif
+} CapState;
 
 
 #define captype(cap)	((cap)->kind)
@@ -2025,7 +2031,6 @@ typedef struct StrAux {
 
 #define MAXSTRCAPS	10
 
-#if 0
 static int getstrcaps (CapState *cs, StrAux *cps, int n) {
   int k = n++;
   cps[k].isstring = 1;
@@ -2050,6 +2055,7 @@ static int getstrcaps (CapState *cs, StrAux *cps, int n) {
 }
 
 
+#if 0
 /*
 ** add next capture (which should be a string) to buffer
 */

@@ -1763,15 +1763,6 @@ static PyObject *Pattern_CaptureConst(PyObject *cls, PyObject *args) {
  * Captures - post-match capturing of values
  * **********************************************************************
  */
-typedef struct CapState {
-    Capture *cap;  /* current capture */
-    Capture *ocap;  /* (original) capture list */
-    PyObject *values; /* List of captured values */
-    PyObject *args; /* args of match call */
-    PyObject *patt; /* pattern */
-    const char *s;  /* original string */
-} CapState;
-
 int pushsubject(CapState *cs, Capture *c) {
     PyObject *str = PyString_FromStringAndSize(c->s, c->siz - 1);
     int ret = 0;
@@ -1828,29 +1819,6 @@ static int pushallvalues (CapState *cs, int addextra) {
         ++n;
     }
     cs->cap++;
-    return n;
-}
-
-static int getstrcaps (CapState *cs, StrAux *cps, int n) {
-    int k = n++;
-    cps[k].isstring = 1;
-    cps[k].u.s.s = cs->cap->s;
-    if (!isfullcap(cs->cap++)) {
-        while (!isclosecap(cs->cap)) {
-            if (n >= MAXSTRCAPS)  /* too many captures? */
-                cs->cap = nextcap(cs->cap);  /* skip it */
-            else if (captype(cs->cap) == Csimple)
-                n = getstrcaps(cs, cps, n);
-            else {
-                cps[n].isstring = 0;
-                cps[n].u.cp = cs->cap;
-                cs->cap = nextcap(cs->cap);
-                n++;
-            }
-        }
-        cs->cap++;  /* skip close */
-    }
-    cps[k].u.s.e = closeaddr(cs->cap - 1);
     return n;
 }
 
