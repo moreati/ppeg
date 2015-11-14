@@ -2667,6 +2667,7 @@ static const char *match (const char *o, const char *s, const char *e,
                         Py_DECREF(val);
                     }
                     Py_DECREF(extravalues);
+                }
                 if (result == Py_None || result == Py_False) {
                     Py_DECREF(result);
                     goto fail;
