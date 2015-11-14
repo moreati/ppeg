@@ -2652,7 +2652,7 @@ static const char *match (const char *o, const char *s, const char *e,
                 PyObject *result;
                 PyObject *extravalues = NULL;
                 long res;
-                Py_ssize_t n;
+                Py_ssize_t n = 0;
                 int ncap = runtimecap(capture + captop, capture, o, s, patt, args, &result);
                 if (ncap == -1 || result == NULL)
                     return NULL;
