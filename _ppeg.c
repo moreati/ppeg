@@ -1824,6 +1824,7 @@ static int pushallvalues (CapState *cs, int addextra) {
             return -1;
         }
         Py_DECREF(str);
+        /* TODO Why is this a pre-increment? lpeg.c uses a post-increment */
         ++n;
     }
     cs->cap++;
