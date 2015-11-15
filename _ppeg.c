@@ -1391,46 +1391,38 @@ static PyObject *optionals(PyObject *patt, int n) {
     return result;
 }
 
-static PyObject *at_least(PyObject *patt, Py_ssize_t n) {
-    PyObject *result;
-    CharsetTag st;
-    Instruction *p = patprog(patt);
-    if (tocharset(p, &st) == ISCHARSET) {
-        result = repeatcharset(patt, st.cs, n);
-        return result;
-    }
-    if (isheadfail(p))
-        result = repeatheadfail(patt, n);
-    else
-        result = repeats(patt, n);
-
-    if (result) {
-        p = patprog(result);
-        optimizecaptures(p);
-        optimizejumps(p);
-    }
-    return result;
-}
-
-static PyObject *at_most(PyObject *patt, Py_ssize_t n) {
-    if (isheadfail(patprog(patt)))
-        return optionalheadfail(patt, n);
-    else
-        return optionals(patt, n);
-}
-
 /* Repetition operator */
 static PyObject *Pattern_pow (PyObject *self, PyObject *other, PyObject *modulo) {
     long n = PyInt_AsLong(other);
+    Instruction *p1 = patprog(self);
     /* Ignore modulo argument - not meaningful */
 
     if (n == -1 && PyErr_Occurred())
         return NULL;
 
-    if (n >= 0)
-        return at_least(self, n);
-    else
-        return at_most(self, -n);
+    if (n >= 0) {
+        CharsetTag st;
+        Instruction *op;
+        PyObject *result;
+        if (tocharset(p1, &st) == ISCHARSET)
+            return repeatcharset(self, st.cs, n);
+        if (isheadfail(p1))
+            result = repeatheadfail(self, n);
+        else
+            result = repeats(self, n);
+        if (!result)
+            return result;
+        op = patprog(result);
+        optimizecaptures(op);
+        optimizejumps(op);
+        return result;
+    }
+    else {
+        if (isheadfail(p1))
+            return optionalheadfail(self, -n);
+        else
+            return optionals(self, -n);
+    }
 }
 
 /* Helper functions for ordered choice operator */
