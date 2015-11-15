@@ -1136,13 +1136,11 @@ PyObject *Pattern_concat(PyObject *self, PyObject *other) {
         Py_DECREF(other);
         return self;
     }
-
     if (isfail(p2) || issucc(p1)) {
         /* true * x == x; x * fail == fail */
         Py_DECREF(self);
         return other;
     }
-
     if (isany(p1) && isany(p2)) {
         result = empty_patt(self, 0);
         if (result == NULL)
@@ -1257,12 +1255,13 @@ static PyObject *Pattern_diff(PyObject *self, PyObject *other) {
 
 /* Assert that self does not match here */
 static PyObject *Pattern_negate (PyObject *self) {
+    Instruction *p = patprog(self);
     PyObject *result;
 
-    if (isfail(patprog(self))) {  /* -false? */
+    if (isfail(p)) {  /* -false? */
         result = empty_patt(self, 0); /* true */
     }
-    else if (issucc(patprog(self))) {  /* -true? */
+    else if (issucc(p)) {  /* -true? */
         result = empty_patt(self, 1);  /* false */
         if (result)
             setinst(patprog(result), IFail, 0);
@@ -1492,29 +1491,29 @@ static PyObject *basic_union (PyObject *self, PyObject *other,
  */
 static PyObject *separateparts (PyObject *self, PyObject *other, 
         Instruction *p1, int l1, int *size, CharsetTag *st2) {
-    Instruction *p;
-    PyObject *result;
     int sp = firstpart(p1, l1);
-    if (sp == 0)
+    if (sp == 0) /* first part is entire p1? */
         return basic_union(self, other, p1, l1, size, st2);
-
-    if ((p1 + sp - 1)->i.code == ICommit || !interfere(p1, sp, st2)) {
+    else if ((p1 + sp - 1)->i.code == ICommit || !interfere(p1, sp, st2)) {
+        Instruction *p;
         int init = *size;
         int end = init + sp;
         *size = end;
-        result = separateparts(self, other, p1 + sp, l1 - sp, size, st2);
+        PyObject *result = separateparts(self, other, p1 + sp, l1 - sp, size, st2);
         if (result == NULL)
             return NULL;
         p = patprog(result);
         copypatt(p + init, p1, sp);
         (p + end - 1)->i.offset = *size - (end - 1);
+        return result;
     }
-    else {
+    else {  /* must change back to non-optimized choice */
+        Instruction *p;
         int init = *size;
         int end = init + sp + 1; /* Needs 1 extra instruction (choice) */
         int sizefirst = sizei(p1); /* Size of p1's first instruction (the test) */
         *size = end;
-        result = separateparts(self, other, p1 + sp, l1 - sp, size, st2);
+        PyObject *result = separateparts(self, other, p1 + sp, l1 - sp, size, st2);
         if (result == NULL)
             return NULL;
         p = patprog(result);
@@ -1526,32 +1525,36 @@ static PyObject *separateparts (PyObject *self, PyObject *other,
         copypatt(p + init, p1 + sizefirst, sp - sizefirst - 1);
         init += sp - sizefirst - 1;
         setinst(p + init, ICommit, *size - (end - 1));
+        return result;
     }
-    return result;
 }
 
 /* Ordered choice operator */
 static PyObject *Pattern_or (PyObject *self, PyObject *other) {
-    PyObject *result;
     int size = 0;
+    Instruction *p1;
+    Instruction *p2;
     CharsetTag st2;
-
+    PyObject *result;
     /* Make sure both arguments are patterns */
     if (ensure_patterns(&self, &other) == -1) {
         Py_INCREF(Py_NotImplemented);
         return Py_NotImplemented;
     }
-    if (isfail(patprog(self))) {
+    p1 = patprog(self);
+    p2 = patprog(other);
+    if (isfail(p1)) { /* check for simple identities */
         Py_DECREF(self);
         return other; /* fail / a == a */
     }
-    if (isfail(patprog(other)) || issucc(patprog(self))) {
+    else if (isfail(p2) || issucc(p1)) {
         Py_DECREF(other);
         return self; /* a / fail == a; true / a == true */
     }
-
-    tocharset(patprog(other), &st2);
-    result = separateparts(self, other, patprog(self), patsize(self), &size, &st2);
+    else {
+        tocharset(p2, &st2);
+        result = separateparts(self, other, p1, patsize(self), &size, &st2);
+    }
     Py_DECREF(self);
     Py_DECREF(other);
     return result;
@@ -1613,7 +1616,6 @@ static PyObject *capture_aux(PyObject*cls, PyObject *pat, int kind, PyObject *la
             optimizecaptures(patprog(result));
         }
     }
-
     return result;
 }
 
@@ -1793,14 +1795,13 @@ static int pushallvalues (CapState *cs, int addextra) {
     Capture *co = cs->cap;
     int n = 0;
     if (isfullcap(cs->cap++)) {
-        /* Push whole match */
-        if (pushsubject(cs, co) == -1)
+        if (pushsubject(cs, co) == -1) /* Push whole match */
             return -1;
         return 1;
     }
     while (!isclosecap(cs->cap))
         n += pushcapture(cs);
-    if (addextra || n == 0) {
+    if (addextra || n == 0) {  /* need extra? */
         PyObject *str = PyString_FromStringAndSize(co->s, cs->cap->s - co->s);
         if (str == NULL)
             return -1;
