@@ -526,7 +526,9 @@ static PyObject *env2val(PyObject *patt, Py_ssize_t idx) {
     D1("Looking up index %d", idx);
     --idx;
     result = PySequence_GetItem(env, idx);
-    /* Ambiguity here - we can return NULL from idx==0 or on error */
+    if (result == NULL)
+        return PyErr_Format(PyExc_IndexError, "Pattern env index out of range");
+
     D1("Result is %p", result);
     return result;
 }
