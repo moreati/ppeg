@@ -65,7 +65,7 @@ Suggestion: Constructor takes multiple arguments and concatenates them.
 Captures
 --------
 
-Captures which match a sero-length string:
+Captures which match a zero-length string:
 
  - Current position
  - Constant value
