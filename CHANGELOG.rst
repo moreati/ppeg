@@ -1,6 +1,20 @@
 Changelog
 =========
 
+0.9.4 (2015-11-15)
+------------------
+
+* Added support for multiple arguments to Pattern.CapC(arg, ...) aka
+  constant capture
+* Added initial support for Pattern.CapT(p) (table capture) with
+  positional/unnamed captures
+* Added initial support for Pattern.CapRT(p, func) (match-time capture)
+* Fixed Pattern.CapS(p) (substitution captures) when the pattern has no
+  captures
+* Added more error checking
+* Added dynamic capture stack. Patterns can now return thousands of captures,
+  depending on available RAM
+
 0.9.3 (2015-11-05)
 ------------------
 
