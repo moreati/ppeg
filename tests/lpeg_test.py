@@ -328,9 +328,8 @@ def test_non_pattern_as_arguments():
 
 # a large table capture
 def test_large_table_capture():
-    #t = match(P.CapT(P.Cap('a')**0), 'a'*10000)
-    #assert t.captures == 'a'*10000
-    pass    # raises RuntimeError
+    t = match(P.CapT(P.Cap('a')**0), 'a'*10000)
+    assert t.captures == [['a']*10000]
 
 
 # test for errors
@@ -339,9 +338,22 @@ def test_for_errors():
         P.Grammar(P.Var(0) + 'a')
     assert excinfo.value.message == 'Rule 0 is left recursive'
 
-    with pytest.raises(RuntimeError) as excinfo:
-        match(P.Cap('a')**0, "a" * 50000)
-    assert excinfo.value.message == "Capture stack overflow"
+    # TODO Either remove this test or confirm there are no overflows when
+    #      there are many captures.
+
+    # The original Lua test fails because the Lua virtual stack can't grow
+    # beyond approx 32768 (2**15) entries. The full Lua error message is
+    # "stack overflow (too many captures)".
+
+    # CPython doesn't have this limitation, so we're probably only
+    # theoretically limited by how much we can malloc.
+    # However there are various lpeg.c structures that store e.g. capture
+    # stack indexes. Those are a mixture of short and int, which could
+    # overflow now we've shed the shackles of Lua's virtual stack.
+
+    #with pytest.raises(RuntimeError) as excinfo:
+    #    match(P.Cap('a')**0, "a" * 50000)
+    #assert excinfo.value.message == "Capture stack overflow"
 
     with pytest.raises(RuntimeError) as excinfo:
         match(P.Var(0), '')
@@ -819,8 +831,8 @@ def test_match_time_captures():
     )
     #assert match(p, "(a g () ((b) c) (d (e)))").captures == ['a', 'g', [], [['b'], 'c'], ['d', ['e']]]
 
-    s = 'a' * 50
-    assert match(P.CapRT(P(1), id_)**0, s).captures == ['a'] * 50
+    s = 'a' * 500
+    assert match(P.CapRT(P(1), id_)**0, s).captures == ['a'] * 500
     #with  match(P.CapRT(1, id_)**0, 'a' * 50000))
 
     def id_(s, i, x):

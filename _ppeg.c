@@ -2403,6 +2403,20 @@ static int pushcapture (CapState *cs) {
     }
 }
 
+static Capture *doublecap (Capture *cap, int captop) {
+    Capture *newc;
+    if (captop >= INT_MAX/((int)sizeof(Capture) * 2)) {
+        PyErr_SetString(PyExc_OverflowError, "too many captures");
+        return cap;
+    }
+    newc = realloc(cap, captop * 2 * sizeof(Capture));
+    if (newc == NULL) {
+        PyErr_SetString(PyExc_MemoryError, "Couldn't expand the captures");
+        return cap;
+    }
+    return newc;
+}
+
 static PyObject *getcaptures (PyObject *patt, Capture **capturep, const char *s, const char *r, PyObject *args)
 {
     Capture *capture = *capturep;
@@ -2449,7 +2463,7 @@ static PyObject *getcaptures (PyObject *patt, Capture **capturep, const char *s,
  * **********************************************************************
  */
 static const char *match (const char *o, const char *s, const char *e,
-                          PyObject *patt, Capture *capture, PyObject *args) {
+                          PyObject *patt, Capture **capturep, PyObject *args) {
     Stack stackbase[MAXBACK];
     Stack *stacklimit = stackbase + MAXBACK;
     Stack *stack = stackbase;  /* point to first empty slot in stack */
@@ -2457,6 +2471,7 @@ static const char *match (const char *o, const char *s, const char *e,
     int captop = 0;  /* point to first empty slot in captures */
     const Instruction *op = patprog(patt);
     const Instruction *p = op;
+    Capture *capture = *capturep;
     stack->p = &giveup; stack->s = s; stack->caplevel = 0; stack++;
 #ifdef TRACE
     Py_XDECREF(((Pattern*)patt)->trace);
@@ -2652,10 +2667,11 @@ static const char *match (const char *o, const char *s, const char *e,
                 captop -= ncap;  /* remove nested captures */
                 if (n > 0) {  /* captures? */
                     if ((captop += n + 1) >= capsize) {
-#if 0
-                        capture = doublecap(L, capture, captop, ptop);
+                        capture = doublecap(capture, captop);
+                        if (PyErr_Occurred())
+                            return NULL;
+                        *capturep = capture;
                         capsize = 2 * captop;
-#endif
                     }
                     // FIXME Why is it fr+1, not fr like in lpeg.c?
                     adddyncaptures(s, capture + captop - n - 1, n, fr+1);
@@ -2693,12 +2709,10 @@ static const char *match (const char *o, const char *s, const char *e,
                 capture[captop].idx = p->i.offset;
                 capture[captop].kind = getkind(p);
                 if (++captop >= capsize) {
-#if 0
-                    capture = doublecap(L, capture, captop, ptop);
-#else
-                    PyErr_SetString(PyExc_RuntimeError, "Capture stack overflow");
-                    return NULL;
-#endif
+                    capture = doublecap(capture, captop);
+                    if (PyErr_Occurred())
+                        return NULL;
+                    *capturep = capture;
                     capsize = 2 * captop;
                 }
                 p++;
@@ -2739,7 +2753,7 @@ Pattern_call(PyObject *self, PyObject *args, PyObject *kw)
 
     cc = malloc(IMAXCAPTURES * sizeof(Capture));
     res = (Match *)result;
-    e = match(str, str, str + len, self, cc, args);
+    e = match(str, str, str + len, self, &cc, args);
     if (e == 0) {
         free(cc);
         if (PyErr_Occurred()) {
