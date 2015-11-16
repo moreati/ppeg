@@ -627,7 +627,7 @@ def test_function_replacements():
     def g(*args):
         return [1]+list(args)
 
-    #assert match(P.Cap(P(1))**0/g/g, "abc").captures == {1, 1, "a", "b", "c"}
+    #assert match(P.Cap(1)**0/g/g, "abc").captures == [1, 1, "a", "b", "c"]
 
     #assert match(( P.CapC([None,None,4]) +
     #               P.CapC([None,3]) +
@@ -636,12 +636,13 @@ def test_function_replacements():
 
     def f(x):
         return x, x + 'x'
-    #assert match((P.Cap(P(1)) / f)**0, "abc").captures == ["a", "ax", "b", "bx", "c", "cx"]
+    #assert match((P.Cap(1) / f)**0, "abc").captures == ["a", "ax", "b", "bx", "c", "cx"]
 
     def swap(x, y):
         return y, x
 
-    #assert match(P.CapT((P.Cap(P(1)) / swap + P.CapC(1))**0), "abc").captures == [None, "a", 1, None, "b", 1, None, "c", 1]
+    #m = match(P.CapT((P.Cap(1) / swap + P.CapC(1))**0), "abc")
+    #assert m.captures == [[None, "a", 1, None, "b", 1, None, "c", 1]]
 
 
 # tests for Query Replacements
