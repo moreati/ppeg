@@ -796,7 +796,7 @@ def test_back_references():
     with pytest.raises(RuntimeError): match(P.CapG(1, 'a') + P.CapB('b'), 'a')
 
     p = P.CapG(P.Cap(1) + P.Cap(1), "k") + P.CapT(P.CapB("k"))
-    #assert match(p, "ab").captures == ["a", "b"] # Infinite loop
+    assert match(p, "ab").captures == [["a", "b"]]
 
     t = []
     def foo(p):
