@@ -629,9 +629,9 @@ def test_function_replacements():
 
     #assert match(P.Cap(1)**0/g/g, "abc").captures == [1, 1, "a", "b", "c"]
 
-    #assert match(( P.CapC([None,None,4]) +
-    #               P.CapC([None,3]) +
-    #               P.CapC([None, None]) ) / g / g,
+    #assert match(( P.CapC(None, None, 4) +
+    #               P.CapC(None, 3) +
+    #               P.CapC(None, None) ) / g / g,
     #             "").captures == [1, 1, None, None, 4, None, 3, None, None]
 
     def f(x):
