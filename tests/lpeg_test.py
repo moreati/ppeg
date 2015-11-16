@@ -309,8 +309,13 @@ def test_table_captures():
 def test_groups():
     p = P.CapG(1)   # no capture
     assert(match(p, 'x').captures == ['x'])
-    #p = P.CapG(P(True)/function () end * 1)   -- no value
-    #assert(p:match('x') == 'x')
+
+    def f(args):
+        pass
+
+    p = P.CapG(P(0)/f + 1)   # no value
+    #assert match(p, 'x').captures == ['x']
+
     p = P.CapG(P.CapG(P.CapG(P.Cap(1))))
     assert(match(p, 'x').captures == ['x'])
     p = P.CapG(P.CapG(P.CapG(P.Cap(1))**0) + P.CapG(P.CapC(1) + P.CapC(2)))
@@ -719,10 +724,11 @@ def test_accumulator_capture():
 
     assert match(P.CapF(P.CapC(1, 2, 3), head), "").captures == [1]
 
-    p = P.CapF(P.CapT(P(True)) + P.CapG(P.Cap(P.Range("az")**1)+ "=" +
-                                         P.Cap(P.Range("az")**1) + ";")**0,
+    p = P.CapF(P.CapT(0) + P.CapG(P.Cap(P.Range("az")**1) + "=" +
+                                  P.Cap(P.Range("az")**1) + ";"  )**0,
                dict)
-    #assert match(p, "a=b;c=du;xux=yuy;") #.captures == {'a': "b", 'c': "du", 'xux': "yuy"}
+    #m = match(p, "a=b;c=du;xux=yuy;")
+    #assert m.captures == [{'a': "b", 'c': "du", 'xux': "yuy"}]
 
 
 # tests for loop checker
