@@ -1,8 +1,0 @@
-syntax: glob
-*.o
-*.obj
-*.exp
-*.lib
-*.pyd.manifest
-*.pyc
-*.pyd
