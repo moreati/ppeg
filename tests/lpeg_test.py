@@ -815,21 +815,25 @@ def test_back_references():
 
 # tests for match-time captures
 def test_match_time_captures():
+    def chr_(subject):
+        return chr(int(subject))
+
     def id_(subject, pos, captures):
         return True, captures
 
-    #assert match(P.CapRT(P.CapS((P.CapRT(P.Set('abc') / {'a': 'x', 'c': 'y'}, id_) |
-    #                             P.Range('09')**1 /  chr |
-    #                             P(1))**0), id_),
-    #              "acb98+68c").captures == ["xyb\98+\68y"]
+    assert match(P.CapRT(P.CapS((P.CapRT(P.Set('abc') / {'a': 'x', 'c': 'y'}, id_) |
+                                 P.Range('09')**1 / chr_ |
+                                 P(1))**0), id_),
+                 "acb98+68c").captures == ["xybb+Dy"]
 
     p = P.Grammar(
         start='S',
         S = P.Var('atom') + space
-          | P.CapRT(P.CapT("(" + space + (P.CapRT(P.Var('S')**1, id_) | P(True)) + ")" + space), id_),
+          | P.CapRT(P.CapT("(" + space + (P.CapRT(P.Var('S')**1, id_) | P(0)) + ")" + space), id_),
         atom = P.CapRT(P.Cap(P.Range("AZaz09")**1), id_),
     )
-    #assert match(p, "(a g () ((b) c) (d (e)))").captures == ['a', 'g', [], [['b'], 'c'], ['d', ['e']]]
+    m = match(p, "(a g () ((b) c) (d (e)))")
+    assert m.captures == [ ['a', 'g', [], [['b'], 'c'], ['d', ['e']]] ]
 
     s = 'a' * 500
     assert match(P.CapRT(P(1), id_)**0, s).captures == ['a'] * 500
@@ -841,6 +845,8 @@ def test_match_time_captures():
         else:
             return None, 2, 4, 6, 8
 
+    # TypeError: Pattern argument must be None,
+    #            or convertible to a string or an integer
     #p = (P(id_) | P.CapRT(1, id_) | P.CapRT(0, id_))**0
     #assert match(p, 'abababab') == ['137' * 4]
 
@@ -852,25 +858,25 @@ def test_match_time_captures():
     #assert(not (m.P(1) * m.Cmt(m.C(1)^0, ref)):match('alo'))
 
     def ref(s, i, x):
-        return i == int(x) and i, 'xuxu'
+        return i == int(x[0]) and i, ['xuxu']
 
-    #assert match(P.CapRT(1, ref), '2')
-    #assert not match(P.CapRT(1, ref), '1')
-    #assert match(P.CapRT(P(1)**0, ref), '03')
+    assert match(P.CapRT(1, ref), '1').captures == ['xuxu']
+    assert not match(P.CapRT(1, ref), '0')
+    assert match(P.CapRT(P(1)**0, ref), '02').captures == ['xuxu']
 
-    def ref(s, i, a, b):
+    def ref(subject, position, (a, b)):
         if a == b:
-            return i, a.upper()
+            return position, [a.upper()]
 
     p = P.CapRT(P.Cap(P.Range("az")**1) + "-" + P.Cap(P.Range("az")**1), ref)
     p = (any_ - p)**0 + p + any_**0 + -1
 
-    #assert match(p, 'abbbc-bc ddaa').captures == ['BC']
+    assert match(p, 'abbbc-bc ddaa').captures == ['BC']
 
-    def f(a, b, s1, s2):
+    def f(subject, position, (s1, s2)):
         return s1 == s2
 
-    def g():
+    def g(*args):
         pass
 
     c = ('[' + P.CapG(P('=')**0, "init") + '[' +
