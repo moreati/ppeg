@@ -1996,6 +1996,7 @@ static int tablecap (CapState *cs) {
                 continue;
             }
             else if (k > 1) {
+            }
         }
         else {
 #endif
