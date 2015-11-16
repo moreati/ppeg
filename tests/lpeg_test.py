@@ -779,6 +779,17 @@ def test_maximum_sizes():
     p = [P('a') for i in range(100)]
     p = P.Grammar(*p)
 
+
+# strange values for rule labels
+#def test_strange_values_for_rule_labels():
+#    p = m.P{ "print",
+#        print = m.V(print),
+#        [print] = m.V(_G),
+#        [_G] = m.P"a",
+#    }
+#    assert(p:match("a"))
+
+
 # initial rule
 def test_initial_rule():
     g = []
@@ -789,6 +800,7 @@ def test_initial_rule():
     #  local p = m.P(g)
     #  assert(p:match("aaaaaaaaaaa") == 11 - i + 1)
     #end
+
 
 # tests for back references
 def test_back_references():
