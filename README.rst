@@ -7,7 +7,12 @@ PPeg
 It's a port of the `LPeg`_ library from Lua.
 
 .. warning::
-    PPeg is still experimental. The API and semantics are not stable.
+    PPeg is alpha software, it's not ready for general use.
+    There are bugs, and they will crash/coredeump your Python process.
+
+.. warning::
+    PPeg is experimental. The API and semantics are not stable.
+    Future releases will break backward compatibility, without warning.
 
 .. _Parsing Expression Grammars: https://en.wikipedia.org/wiki/Parsing_expression_grammar
 .. _LPeg: http://www.inf.puc-rio.br/~roberto/lpeg/
@@ -50,8 +55,11 @@ This example corresponds roughly to the following LPeg example
 .. _regex: https://pypi.python.org/pypi/regex
 .. _recursive patterns: http://www.regular-expressions.info/recurse.html
 
-Modules
-=======
-- _cpeg.c
-- _ppeg.c
-    - includes lpeg.c
+Limitations
+===========
+
+- PPeg only supports CPython 2.6 and 2.7.
+- PPeg doesn't support Unicode, only byte strings can be matched or searched.
+  This is closely tied to how Lua and LPeg handle strings.
+- PPeg is untested on any platform except 64-bit Linux.
+- Bugs, lots of bugs.
