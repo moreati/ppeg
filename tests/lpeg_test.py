@@ -717,7 +717,7 @@ def test_accumulator_capture():
     def head(seq):
         return seq[0]
 
-    #assert match(P.CapF(P.CapC([1,2,3]), head), "").captures == [[1]]
+    assert match(P.CapF(P.CapC(1, 2, 3), head), "").captures == [1]
 
     p = P.CapF(P.CapT(P(True)) + P.CapG(P.Cap(P.Range("az")**1)+ "=" +
                                          P.Cap(P.Range("az")**1) + ";")**0,
