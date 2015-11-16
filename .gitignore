@@ -61,3 +61,7 @@ target/
 
 # Test data
 kjv10.txt
+
+# CTags
+tags
+
