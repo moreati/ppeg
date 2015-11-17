@@ -2464,20 +2464,6 @@ static PyObject *getcaptures (PyObject *patt, Capture **capturep, const char *s,
             n += count;
         } while (!isclosecap(cs.cap));
     }
-#if 0
-    /* No longer return end pos as result, as match object handles this */
-    if (n == 0) { /* No capture values */
-        PyObject *val = PyInt_FromLong(r - s);
-        if (!val) {
-            Py_DECREF(result);
-            return NULL;
-        }
-        Py_DECREF(result);
-        result = val;
-        /* PyList_Append(result, val); */
-    }
-#endif
-
     return result;
 }
 
