@@ -859,16 +859,14 @@ def test_match_time_captures():
     assert match(P.CapRT(P(1), id_)**0, s).captures == ['a'] * 500
     #with  match(P.CapRT(1, id_)**0, 'a' * 50000))
 
-    def id_(s, i, x):
+    def id_(s, i, (x,)):
         if x == 'a':
-            return i + 1, 1, 3, 7
+            return i + 1, [1, 3, 7]
         else:
-            return None, 2, 4, 6, 8
+            return None, [2, 4, 6, 8]
 
-    # TypeError: Pattern argument must be None,
-    #            or convertible to a string or an integer
-    #p = (P(id_) | P.CapRT(1, id_) | P.CapRT(0, id_))**0
-    #assert match(p, 'abababab') == ['137' * 4]
+    p = (P(id_) | P.CapRT(2, id_) | P.CapRT(1, id_))**0
+    assert match(p, 'abababab').captures == [1, 3, 7] * 4
 
     def ref(s, i, x):
         return match(x, s, i - len(x))

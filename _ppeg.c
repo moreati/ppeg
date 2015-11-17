@@ -22,6 +22,8 @@
 #define D3(s,a,b,c)
 #endif
 
+#define ENV_ERROR (-1)
+
 static const char *const instruction_names[] = {
     "any", "char", "set", "span", "ret", "end", "choice", "jmp", "call",
     "open_call", "commit", "partial_commit", "back_commit", "failtwice",
@@ -419,6 +421,21 @@ static int init_any(PyObject *self, Py_ssize_t n) {
     return 0;
 }
 
+static Py_ssize_t val2env(PyObject *patt, PyObject *val);
+
+static int init_callable(PyObject *self, PyObject *callable) {
+    Py_ssize_t idx;
+    Instruction *p;
+    if (resize_patt(self, 2) == -1)
+        return -1;
+    idx = val2env(self, callable);
+    if (idx == ENV_ERROR)
+        return -1;
+    p = patprog(self);
+    setinstcap(p, IOpenCapture, idx, Cruntime, 0);
+    setinstcap(p + 1, ICloseRunTime, 0, Cclose, 0);
+    return 0;
+}
 static int Pattern_init(PyObject *self, PyObject *args, PyObject *kwds)
 {
     static char *kwlist[] = {"match", "set", "range", NULL};
@@ -477,9 +494,15 @@ static int Pattern_init(PyObject *self, PyObject *args, PyObject *kwds)
             goto invalid;
         return init_match(self, str, len);
     }
+    else if (PyCallable_Check(match)) {
+        return init_callable(self, match);
+    }
     else {
 invalid:
-        PyErr_SetString(PyExc_TypeError, "Pattern argument must be None, or convertible to a string or an integer");
+        PyErr_Format(PyExc_TypeError,
+                     "Pattern() argument must be either None, a number, "
+                     "a string, or a callable; not '%.200s'",
+                     Py_TYPE(match)->tp_name);
         return -1;
     }
 
@@ -490,7 +513,6 @@ invalid:
  * Environment management - convert a PyObject to an integer
  * **********************************************************************
  */
-#define ENV_ERROR (-1)
 
 static Py_ssize_t val2env(PyObject *patt, PyObject *val) {
     PyObject *env = patenv(patt);
